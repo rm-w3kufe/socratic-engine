@@ -292,13 +292,20 @@ class SocraticEngine:
             raise ValueError(f"Predicado no registrado: {name}")
 
         # Resolver argumentos recursivamente
-        resolved_args = [
-            self.evaluate(arg, ctx).is_true if isinstance(arg, dict) else arg
-            for arg in node.get("args", [])
-        ]
+        # Resolver argumentos recursivamente — SOLO si el dict es un NODO
+        # (tiene 'predicate'/'op'). Un dict de DATOS (p.ej. {"id": 123}
+        # pasado a un predicado como kwargs) NO es un nodo lógico: se pasa
+        # tal cual, no se evalúa. Antes cualquier dict se evaluaba como
+        # nodo → ValueError en predicados con datos estructurados
+        # (quickstart demo case 1, 2026-08-18).
+        def _maybe_eval(v: Any) -> Any:
+            if isinstance(v, dict) and ("predicate" in v or "op" in v):
+                return self.evaluate(v, ctx).is_true
+            return v
+
+        resolved_args = [_maybe_eval(arg) for arg in node.get("args", [])]
         resolved_kwargs = {
-            k: self.evaluate(v, ctx).is_true if isinstance(v, dict) else v
-            for k, v in node.get("kwargs", {}).items()
+            k: _maybe_eval(v) for k, v in node.get("kwargs", {}).items()
         }
 
         # Resolución de tokens: "$type" → TYPE del doc (sujeto del

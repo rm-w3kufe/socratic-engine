@@ -175,3 +175,42 @@ socratic("CLASS-TREE-CLASSIFY") = {
 
 def test_parse_socratic_block_no_block_returns_none():
     assert parse_socratic_block("no socratic here") is None
+
+# ── KWARGS CON DICT DE DATOS: datos estructurados no son nodos ──
+
+def test_kwargs_data_dict_is_not_a_node(engine):
+    """Un dict de DATOS en kwargs (p.ej. {"id": 123}) se pasa tal cual al
+    predicado — NO se evalúa como nodo lógico (regresión quickstart 2026-08-18)."""
+    @engine.register("schema_valid")
+    def schema_valid(data, **kw):
+        from socratic_engine import PredicateResult
+        if not data:
+            return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+        ok = isinstance(data, dict) and "id" in data
+        return PredicateResult(
+            truth=Truth.TRUE if ok else Truth.FALSE,
+            certified=True,
+            evidence={"fields_checked": ["id"]},
+        )
+
+    tree = {"op": "AND", "children": [
+        {"predicate": "schema_valid", "kwargs": {"data": {"id": 123}}},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_true, "dict de datos debe pasarse como valor, no evaluarse como nodo"
+    assert ev.certified
+
+
+def test_kwargs_nested_node_still_evaluates(engine):
+    """Un dict NODO en kwargs (con 'predicate'/'op') SIGUE evaluándose."""
+    @engine.register("wrapper")
+    def wrapper(inner: bool, **kw):
+        return inner
+
+    tree = {"op": "AND", "children": [
+        {"predicate": "wrapper", "kwargs": {
+            "inner": {"predicate": "type_prefix", "args": ["$type", "VSL-"]},
+        }},
+    ]}
+    ev = engine.evaluate(tree, {"type": "VSL-X"})
+    assert ev.is_true, "nodo anidado en kwargs debe evaluarse"
