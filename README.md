@@ -13,6 +13,17 @@ MCP servers, CI/CD — uses the *same* engine, the *same* contract.
 
 ---
 
+## The Problem
+
+LLMs can't maintain logical consistency across long reasoning chains.
+They confuse claims with facts, forget premises, and self-contradict.
+When an agent says "the deployment is safe", you need more than
+confidence scores — you need structural evidence.
+
+Existing frameworks (LangChain, AutoGen, CrewAI) lack a verification
+layer that separates opinion from certification. This engine fills
+that gap.
+
 ## Why
 
 LLM agents produce *claims*, not facts. Before a claim can gate a build, a
@@ -119,6 +130,18 @@ Tools: `socratic_evaluate` (tree + context → decision), `socratic_diagnose`
 - **R9 (no silent concession).** An undecidable branch returns the visible
   `'?'` (None), never a silent `else_home`.
 
+## Philosophy
+
+This engine implements **externalized epistemic scaffolding**: the
+verification structure lives OUTSIDE the LLM's reasoning, not inside it.
+
+The LLM generates trees (proposals). The engine evaluates them
+(certification). The trace explains failures (diagnosis). Each component
+does what it does best.
+
+This is not about making LLMs smarter. It's about making their claims
+verifiable, auditable, and diagnosable.
+
 ## Tests
 
 ```bash
@@ -127,4 +150,4 @@ Tools: `socratic_evaluate` (tree + context → decision), `socratic_diagnose`
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE).
