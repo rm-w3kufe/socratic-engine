@@ -34,10 +34,21 @@ declared trees, where:
 
 ## Install
 
+> **Note:** the package is not on PyPI yet. Install from source for now.
+
+### From source (recommended for now)
+
 ```bash
-pip install socratic-engine
-# or from source:
-python -m venv .venv && .venv/bin/pip install -e .
+git clone https://github.com/rm-w3kufe/socratic-engine.git
+cd socratic-engine
+python -m venv .venv
+.venv/bin/pip install -e .
+```
+
+### From source with MCP extras
+
+```bash
+.venv/bin/pip install -e ".[mcp]"
 ```
 
 ## Quick start
