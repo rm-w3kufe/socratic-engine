@@ -270,3 +270,37 @@ print(ev.truth.name, ev.certified)          # FALSE True — self-loop no cuenta
 
 Misma disciplina R10: sin serie/topología válida → UNKNOWN no certificado;
 la evidencia incluye la serie/el ciclo completo (auditable).
+
+---
+
+## 8. Cache TTL for costly predicates (v0.2.0)
+
+Wrap an expensive predicate (I/O, network, MCP) with `@cached`:
+
+```python
+from socratic_engine import SocraticEngine, PredicateResult, Truth, cached
+
+engine = SocraticEngine()
+
+@engine.register("expensive_probe")
+@cached(ttl=2.0)          # 2s window; default is 5s
+def expensive_probe(host, **kw):
+    # e.g. HTTP probe, DNS lookup, MCP call — slow
+    return PredicateResult(truth=Truth.TRUE, certified=True,
+                           evidence={"host": host})
+
+e1 = engine.evaluate({"predicate": "expensive_probe", "args": ["cache"]})
+e2 = engine.evaluate({"predicate": "expensive_probe", "args": ["cache"]})
+# e2.metadata["cached"] == True — historical evidence, marked, not fresh
+```
+
+Semantics:
+
+- `UNKNOWN` results are **never cached** — retrying is cheap and may be
+  the only path to a decision.
+- Cache hits are marked `metadata.cached=True` so consumers know the
+  evidence is historical, not a fresh measurement.
+- `engine.cache.clear()` forces re-verification.
+
+The cache is an optimization, never a substitute for verification:
+certification is still decided by the original predicate.

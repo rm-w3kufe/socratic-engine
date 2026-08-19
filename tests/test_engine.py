@@ -5,8 +5,10 @@ import pytest
 from socratic_engine import (
     SocraticEngine,
     SocraticTreeBuilder,
+    PredicateCache,
     PredicateResult,
     Truth,
+    cached,
     tree_home,
     parse_socratic_block,
 )
@@ -357,3 +359,76 @@ def test_feedback_loop_self_loop_not_counted(engine):
 def test_feedback_loop_invalid_topology_is_unknown(engine):
     ev = engine.evaluate({"predicate": "feedback_loop", "args": [["not", "a", "dict"], "A"]})
     assert ev.is_unknown and not ev.certified
+
+
+# ── CACHE TTL PARA PREDICADOS COSTOSOS (v0.2.0) ──
+
+def test_cached_predicate_hits_cache(engine):
+    calls = []
+
+    @engine.register("costly_probe")
+    @cached(ttl=60)
+    def costly_probe(name, **kw):
+        calls.append(name)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+
+    ev1 = engine.evaluate({"predicate": "costly_probe", "args": ["x"]})
+    ev2 = engine.evaluate({"predicate": "costly_probe", "args": ["x"]})
+    assert ev1.is_true and ev2.is_true
+    assert len(calls) == 1, "segunda llamada debe venir del cache"
+
+
+def test_cached_predicate_distinct_args_no_shared_cache(engine):
+    calls = []
+
+    @engine.register("costly_probe2")
+    @cached(ttl=60)
+    def costly_probe2(name, **kw):
+        calls.append(name)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+
+    engine.evaluate({"predicate": "costly_probe2", "args": ["a"]})
+    engine.evaluate({"predicate": "costly_probe2", "args": ["b"]})
+    assert len(calls) == 2, "args distintos → cache distinto"
+
+
+def test_cached_predicate_marks_hit_as_cached(engine):
+    @engine.register("costly_probe3")
+    @cached(ttl=60)
+    def costly_probe3(name, **kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True,
+                               evidence={"from": "live"})
+
+    engine.evaluate({"predicate": "costly_probe3", "args": ["x"]})
+    ev = engine.evaluate({"predicate": "costly_probe3", "args": ["x"]})
+    assert ev.metadata.get("cached") is True, "hit de cache debe marcarse cached=True"
+
+
+def test_cached_predicate_ttl_expiry(engine, monkeypatch):
+    calls = []
+
+    @engine.register("costly_probe4")
+    @cached(ttl=0.05)
+    def costly_probe4(name, **kw):
+        calls.append(name)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+
+    engine.evaluate({"predicate": "costly_probe4", "args": ["x"]})
+    import time as _time
+    _time.sleep(0.06)
+    engine.evaluate({"predicate": "costly_probe4", "args": ["x"]})
+    assert len(calls) == 2, "TTL expirado → re-verificación (evidencia fresca)"
+
+
+def test_cached_predicate_unknown_not_cached(engine):
+    calls = []
+
+    @engine.register("costly_probe5")
+    @cached(ttl=60)
+    def costly_probe5(name, **kw):
+        calls.append(name)
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+
+    engine.evaluate({"predicate": "costly_probe5", "args": ["x"]})
+    engine.evaluate({"predicate": "costly_probe5", "args": ["x"]})
+    assert len(calls) == 2, "UNKNOWN no se cachea — reintentar es la vía a decidir"

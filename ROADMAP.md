@@ -26,7 +26,7 @@
 ### Features
 - [x] Operador dialéctico (DIALECTICAL_AND para contradicciones legítimas)
 - [x] Predicados pragmáticos (feedback loops, tendencias temporales)
-- [ ] Cache TTL para predicados costosos
+- [x] Cache TTL para predicados costosos
 - [ ] Rate limiting en MCP server
 
 ### Ecosistema

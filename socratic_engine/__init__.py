@@ -29,10 +29,12 @@ CLI:
 from .engine import (
     Evaluation,
     FailureTrace,
+    PredicateCache,
     PredicateResult,
     Predicate,
     SocraticEngine,
     Truth,
+    cached,
     find_failure_traces,
 )
 from .tree import (

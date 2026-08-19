@@ -183,6 +183,23 @@ Output is JSON with at minimum:
 The CLI registers extra predicates (`maybe`, `llm_judge`, ...) via
 `engine.register` — the extension mechanism.
 
+## Cache TTL (v0.2.0)
+
+`@cached(ttl=...)` wraps an expensive predicate. Key = (name,
+serializable args, serializable kwargs). Semantics:
+
+- **UNKNOWN is never cached** — re-trying is cheap and may be the only
+  path to a decision.
+- **Cache hits are marked** `metadata.cached=True` — the result is
+  historical evidence, not a fresh measurement; the consumer can tell.
+- Default TTL 5s (live systems change fast); per-registration TTL
+  overrides it.
+- `engine.cache.clear()` forces re-verification.
+
+The cache is an optimization for costly predicates (I/O, network, MCP),
+never a substitute for verification — certification is decided by the
+original predicate.
+
 ## MCP server (mcp_server.py)
 
 `SocraticMCP` exposes three operations:

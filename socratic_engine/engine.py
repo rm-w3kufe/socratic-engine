@@ -15,6 +15,7 @@ R10 (LLM boundary): un predicate puede retornar PredicateResult(certified=False)
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 import fnmatch
@@ -99,6 +100,68 @@ class PredicateResult:
 Predicate = Callable[..., Union[bool, PredicateResult]]
 
 
+class PredicateCache:
+    """Cache con TTL para predicados costosos (v0.2.0).
+
+    Semántica: la certificación exige evidencia FRESCA — un resultado
+    cacheado es evidencia histórica, no presente. Por eso el cache nunca
+    devuelve certified=True como si fuera recién medido; el predicado
+    original es quien decide la certificación. Este cache es un
+    optimizador para predicados caros (I/O, red, MCP), no un sustituto de
+    la verificación.
+
+    TTL por defecto: 5s (los sistemas vivos cambian rápido). Clave =
+    (nombre, args serializables). No cachea resultados UNKNOWN: el
+    UNKNOWN es "no se pudo decidir ahora" — reintentar es barato y puede
+    ser la única vía a una decisión.
+    """
+
+    def __init__(self, default_ttl: float = 5.0):
+        self.default_ttl = default_ttl
+        self._entries: Dict[tuple, tuple] = {}  # key → (expires_at, result)
+
+    def get(self, key: tuple) -> Any:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        expires_at, result = entry
+        if time.monotonic() > expires_at:
+            del self._entries[key]
+            return None
+        return result
+
+    def set(self, key: tuple, result: Any, ttl: Optional[float] = None):
+        self._entries[key] = (
+            time.monotonic() + (ttl if ttl is not None else self.default_ttl),
+            result,
+        )
+
+    def clear(self):
+        self._entries.clear()
+
+
+def cached(ttl: Optional[float] = None, cache: Optional[PredicateCache] = None):
+    """Decorador: cachea un predicado por (args, kwargs serializables).
+
+    Uso:
+        @engine.register("expensive_check")
+        @cached(ttl=2.0)
+        def expensive_check(name, **kw):
+            ...
+
+    El cache se adjunta al engine (engine.cache) si no se pasa uno
+    explícito, y se resuelve en el momento del registro — por eso el
+    decorador debe usarse DEBAJO de @engine.register y captura `cache`
+    desde el engine en el registro.
+    """
+    def decorator(func: Predicate) -> Predicate:
+        func.__socratic_cached__ = True
+        func.__socratic_ttl__ = ttl
+        func.__socratic_cache_ref__ = cache
+        return func
+    return decorator
+
+
 # ============================================================
 # SOCRATIC ENGINE (Fusionado)
 # ============================================================
@@ -115,6 +178,7 @@ class SocraticEngine:
 
     def __init__(self):
         self.predicates: Dict[str, Predicate] = {}
+        self.cache: PredicateCache = PredicateCache()
         self._register_builtins()
 
     # --------------------------------------------------------
@@ -122,9 +186,46 @@ class SocraticEngine:
     # --------------------------------------------------------
 
     def register(self, name: str):
-        """Registra una función externa. Puede retornar bool o PredicateResult."""
+        """Registra una función externa. Puede retornar bool o PredicateResult.
+        Si la función está decorada con @cached, se envuelve con el cache
+        del engine (TTL resuelto en el registro)."""
         def decorator(func: Predicate):
-            self.predicates[name] = func
+            if getattr(func, "__socratic_cached__", False):
+                cache_ref = func.__socratic_cache_ref__ or self.cache
+                ttl = func.__socratic_ttl__
+                original = func
+
+                def wrapped(*args, **kwargs):
+                    try:
+                        key = (name, json.dumps(args, default=str),
+                               json.dumps(kwargs, default=str, sort_keys=True))
+                    except (TypeError, ValueError):
+                        # args no serializables → no cachear, llamar directo
+                        return original(*args, **kwargs)
+                    hit = cache_ref.get(key)
+                    if hit is not None:
+                        # Evidencia de cache = evidencia histórica: marcar
+                        # para que el resultado no mienta sobre su frescura.
+                        if isinstance(hit, PredicateResult):
+                            hit = PredicateResult(
+                                truth=hit.truth, certified=hit.certified,
+                                evidence=hit.evidence, source=hit.source,
+                                metadata=dict(hit.metadata or {}, cached=True),
+                            )
+                        return hit
+                    result = original(*args, **kwargs)
+                    # NO cachear UNKNOWN: reintentar es barato y puede ser
+                    # la única vía a una decisión.
+                    if isinstance(result, PredicateResult) and result.truth == Truth.UNKNOWN:
+                        return result
+                    cache_ref.set(key, result, ttl)
+                    return result
+                wrapped.__name__ = func.__name__
+                wrapped.__doc__ = func.__doc__
+                wrapped.__socratic_cache_wrapper__ = True
+                self.predicates[name] = wrapped
+            else:
+                self.predicates[name] = func
             return func
         return decorator
 
