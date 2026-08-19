@@ -21,7 +21,8 @@
 - [x] GitHub Actions CI (pytest en cada push)
 - [ ] Coverage report (objetivo: >90%) — CI reporta coverage, umbral actual 50% (gate del 90% cuando la suite cubra más)
 - [ ] Tests de integración con state-canon
-- [ ] Benchmarks de performance
+- [x] Benchmarks de performance (benchmarks/benchmark.py: deep/wide trees,
+      cache speedup ~43x en 1ms I/O, diagnose; stdlib only)
 
 ### Features
 - [x] Operador dialéctico (DIALECTICAL_AND para contradicciones legítimas)
