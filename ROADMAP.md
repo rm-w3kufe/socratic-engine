@@ -20,7 +20,7 @@
 ### Tests y Calidad
 - [x] GitHub Actions CI (pytest en cada push)
 - [ ] Coverage report (objetivo: >90%) — CI reporta coverage, umbral actual 50% (gate del 90% cuando la suite cubra más)
-- [ ] Tests de integración con state-canon
+- [x] Tests de integración con state-canon (tests/test_state_canon_integration.py: JsonStateProvider + DIALECTICAL_AND detecta drift declarado/observado)
 - [x] Benchmarks de performance (benchmarks/benchmark.py: deep/wide trees,
       cache speedup ~43x en 1ms I/O, diagnose; stdlib only)
 
