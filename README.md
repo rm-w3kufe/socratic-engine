@@ -1,5 +1,7 @@
 # socratic-engine — externalized reasoning for AI agents
 
+![CI](https://github.com/rm-w3kufe/socratic-engine/actions/workflows/ci.yml/badge.svg)
+
 > **Don't ask the language model to hold the whole recursion. Give the recursion a substrate.**
 
 `socratic-engine` is a model-agnostic reasoning substrate for AI agents: a recursive evaluator for **trivalent logical trees** with an explicit separation between **truth**, **certification**, and **evidence**.
