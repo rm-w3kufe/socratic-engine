@@ -39,10 +39,11 @@
 - [x] Ejemplo end-to-end con OpenCode (examples/opencode-end-to-end.md: config MCP + wrapper bridge + escenario declared/observed; contrato MCP verificado)
 
 ### Pendiente de estabilización (verificado 2026-08-19)
-- [ ] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db) NO están
-      en PyPI 0.2.1 (publicado antes). Verificado: instalación limpia 0.2.1 en venv
-      /tmp no tiene `socratic_engine.bridge_statecanon`. Sync version en 3 lugares:
-      pyproject.toml + `__init__.py __version__` + `mcp_server.py` serverInfo.
+- [x] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db)
+      NO estaban en PyPI 0.2.1 (publicado antes). Verificado: instalación limpia
+      0.2.1 en venv /tmp no tenía `socratic_engine.bridge_statecanon`. 0.2.2
+      sincronizado en 4 lugares: pyproject.toml + `__init__.py __version__` +
+      `mcp_server.py` serverInfo + `tests/test_mcp_server.py` assert.
 - [ ] VERIFY-E2E-CLAUDE-CODE — verificación en vivo del ejemplo Claude Code (requiere tokens Anthropic)
 
 ## 🚀 Objetivo v0.3.0: Extensión Formal

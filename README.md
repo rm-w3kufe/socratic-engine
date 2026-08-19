@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.1 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, and a 189-test suite at 100% statement coverage are working. The official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) and end-to-end examples are in the repo HEAD but **not yet in the PyPI 0.2.1 release** — pending 0.2.2. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.2 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, a 189-test suite at 100% statement coverage, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -710,7 +710,7 @@ This makes the same engine usable from:
 
 ## Install
 
-### From PyPI (v0.2.0)
+### From PyPI (v0.2.2)
 
 ```bash
 pip install socratic-engine
@@ -981,8 +981,8 @@ Its purpose is narrower:
 - [x] dialectical operator for legitimate contradictions
 - [x] temporal / pragmatic predicates
 - [x] caching and rate limiting for expensive predicates
-- [x] published on PyPI (v0.2.0)
-- [ ] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
+- [x] published on PyPI (v0.2.0 → v0.2.2; bridge + ejemplos incluidos desde 0.2.2)
+- [x] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
 
 ### v0.3.x — formal extension
 
