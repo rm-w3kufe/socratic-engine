@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.0 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage), benchmarks, and a 45-test suite are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.1 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, and a 162-test suite at 100% statement coverage are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -686,8 +686,12 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-45 passed
+162 passed
 ```
+
+at 100% statement coverage (CI gates at 90%; uncovered lines are
+documented `# pragma: no cover` defensive branches — see the rationale
+inline in the source).
 
 (includes integration tests with `state-canon`, available when that
 package is installed or reachable at `~/state-canon-mcp`)
@@ -717,6 +721,7 @@ socratic-engine/
 └── tests/
     ├── test_engine.py
     ├── test_mcp_server.py
+    ├── test_cli.py
     └── test_state_canon_integration.py
 ```
 
@@ -912,7 +917,7 @@ Its purpose is narrower:
 ### v0.2.x — maturation
 
 - [x] CI workflow (pytest 3.10–3.12 + coverage + CLI smoke + MCP job)
-- [ ] coverage > 90% (currently ~67%; CI gates at 50%)
+- [x] coverage > 90% (now 100%; CI gates at 90%)
 - [x] integration tests with `state-canon`
 - [x] performance benchmarks
 - [x] richer examples and architecture documentation

@@ -604,11 +604,12 @@ def test_cached_non_serializable_args_no_cache(engine):
     def nonser(obj, **kw):
         calls.append(1)
         return PredicateResult(truth=Truth.TRUE, certified=True)
-    class Weird:  # no serializable
-        pass
+    class Weird:  # __str__ lanza → json.dumps falla → sin cache (determinista)
+        def __str__(self):
+            raise TypeError("no serializable")
     engine.evaluate({"predicate": "nonser", "args": [Weird()]})
     engine.evaluate({"predicate": "nonser", "args": [Weird()]})
-    assert len(calls) == 2  # args no serializables → sin cache
+    assert len(calls) == 2  # args no serializables → sin cache (todo Python)
 
 
 def test_failure_trace_str():
