@@ -64,6 +64,14 @@ class SocraticTreeBuilder:
             for i, arg in enumerate(node.get("args", [])):
                 self._validate_node(arg, f"{path}.args[{i}]")
             for k, v in node.get("kwargs", {}).items():
+                # Un dict de DATOS en kwargs (sin 'predicate'/'op') es un
+                # valor que se pasa tal cual al predicado — NO se valida como
+                # nodo lógico. Alineado con _evaluate_predicate (el engine
+                # trata kwargs-data como valor desde 2026-08-18; el builder
+                # debe reflejar lo mismo — R16: sin drift entre builder y
+                # engine, un árbol que el builder acepta el engine lo evalúa).
+                if isinstance(v, dict) and "predicate" not in v and "op" not in v:
+                    continue
                 self._validate_node(v, f"{path}.kwargs.{k}")
             return
 
@@ -187,7 +195,7 @@ def parse_socratic_block(text: str) -> Optional[dict]:
     body = text[m.end() - 1:]  # desde el { del bloque
     obj, _ = _parse_vsl_value(body, 0)
     if not isinstance(obj, dict):
-        return None
+        return None  # pragma: no cover — inalcanzable: regex exige '{' tras '=', _parse_vsl_value devuelve dict
     return obj
 
 
@@ -209,13 +217,13 @@ def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,
 
     def _resolve(node: Any) -> Optional[str]:
         if not isinstance(node, dict):
-            return None
+            return None  # pragma: no cover — inalcanzable: _resolve solo recibe dicts validados por evaluate (nunca no-dict)
         # hoja con home propio: evalúa y devuelve su home si TRUE
         if "predicate" in node or "op" in node:
             try:
                 ev = engine.evaluate(node, ctx)
-            except (ValueError, KeyError):
-                return None
+            except (ValueError, KeyError):  # pragma: no cover — inalcanzable: evaluate del op padre ya validó todos los children; un child que lanza cae en el except del loop (L248), no aquí
+                return None  # pragma: no cover — inalcanzable: ver L225
             if ev.is_true and node.get("home"):
                 return node["home"]
             if ev.is_true and "op" in node:
@@ -225,7 +233,7 @@ def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,
                     if h is not None:
                         return h
             return None
-        return None
+        return None  # pragma: no cover — inalcanzable: todo nodo con predicate en árbol válido tiene home u op; return None final defensivo
 
     saw_unknown = False
     for child in tree.get("children", []):

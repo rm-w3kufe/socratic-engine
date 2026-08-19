@@ -26,7 +26,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           pip install pytest-cov
-          python -m pytest tests/ -q --cov=socratic_engine --cov-report=term-missing --cov-fail-under=50
+          python -m pytest tests/ -q --cov=socratic_engine --cov-report=term-missing --cov-fail-under=90
       - name: CLI smoke test (eval-tree contract — R10 external contract)
         run: |
           printf 'socratic("SMOKE") = {\n  predicate: "ctx_has",\n  args: ["$ctx", "type"],\n  home: "ok",\n}\n' > /tmp/smoke.vsm

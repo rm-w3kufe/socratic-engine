@@ -216,4 +216,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main())  # pragma: no cover — entry point __main__, cubierto por subprocess test; coverage no instrumenta procesos hijos

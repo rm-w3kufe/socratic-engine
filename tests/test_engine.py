@@ -432,3 +432,888 @@ def test_cached_predicate_unknown_not_cached(engine):
     engine.evaluate({"predicate": "costly_probe5", "args": ["x"]})
     engine.evaluate({"predicate": "costly_probe5", "args": ["x"]})
     assert len(calls) == 2, "UNKNOWN no se cachea — reintentar es la vía a decidir"
+
+
+# ── BUILDER: paths de error (cobertura tree.py) ──
+
+def test_builder_invalid_json_string():
+    with pytest.raises(ValueError, match="JSON inválido"):
+        SocraticTreeBuilder(SocraticEngine()).build("{not json")
+
+
+def test_builder_non_dict_node():
+    with pytest.raises(ValueError, match="esperado bool, escalar o dict"):
+        SocraticTreeBuilder(SocraticEngine()).build([1, 2, 3])
+
+
+def test_builder_unknown_operator():
+    with pytest.raises(ValueError, match="desconocido"):
+        SocraticTreeBuilder(SocraticEngine()).build({"op": "NOPE", "children": []})
+
+
+def test_builder_operator_requires_children():
+    with pytest.raises(ValueError, match="al menos un hijo"):
+        SocraticTreeBuilder(SocraticEngine()).build({"op": "AND", "children": []})
+
+
+def test_builder_implies_arity():
+    eng = SocraticEngine()
+    with pytest.raises(ValueError, match="exactamente 2"):
+        SocraticTreeBuilder(eng).build({"op": "IMPLIES", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]},
+        ]})
+
+
+def test_builder_unknown_predicate():
+    eng = SocraticEngine()
+    with pytest.raises(ValueError, match="no registrado|predicado"):
+        SocraticTreeBuilder(eng).build({"predicate": "ghost", "args": []})
+
+
+def test_builder_missing_predicate_and_op():
+    with pytest.raises(ValueError, match="predicate.*op|op.*predicate|nodo debe"):
+        SocraticTreeBuilder(SocraticEngine()).build({"foo": "bar"})
+
+
+def test_builder_nested_kwargs_validated():
+    eng = SocraticEngine()
+    @eng.register("w")
+    def w(x, **kw):
+        return True
+    # kwargs no-nodo con dict de datos → válido (alineado con engine: un
+    # dict de datos sin 'predicate'/'op' se pasa tal cual, no se valida)
+    tree = {"predicate": "w", "args": [True], "kwargs": {"data": {"id": 1}}}
+    assert SocraticTreeBuilder(eng).build(tree) == tree
+    # kwargs con dict NODO → sí se valida (predicado debe existir)
+    with pytest.raises(ValueError, match="no registrado"):
+        SocraticTreeBuilder(eng).build(
+            {"predicate": "w", "args": [True],
+             "kwargs": {"inner": {"predicate": "ghost", "args": []}}})
+
+
+# ── COBERTURA: paths de error y edge cases del engine ──
+
+def test_type_regex_missing_type_unknown(engine):
+    ev = engine.evaluate({"predicate": "type_regex", "args": ["", "SPEC-.*"]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_type_regex_invalid_pattern_false_uncertified(engine):
+    ev = engine.evaluate({"predicate": "type_regex", "args": ['SPEC-1', '([']})
+    assert ev.is_false and not ev.certified
+
+
+def test_type_regex_match_true(engine):
+    ev = engine.evaluate({"predicate": "type_regex", "args": ["SPEC-42", r"SPEC-\d+"]})
+    assert ev.is_true and ev.certified
+
+
+def test_doc_has_status_present(engine):
+    doc = {"statuses": ["validated", "pending"], "name": "x"}
+    ev = engine.evaluate({"predicate": "doc_has_status", "args": [doc, "validated"]})
+    assert ev.is_true and ev.certified
+
+
+def test_doc_has_status_absent(engine):
+    doc = {"statuses": ["validated"], "name": "x"}
+    ev = engine.evaluate({"predicate": "doc_has_status", "args": [doc, "pending"]})
+    assert ev.is_false and ev.certified
+
+
+def test_not_requires_exactly_one_child(engine):
+    with pytest.raises(ValueError, match="NOT"):
+        engine.evaluate({"op": "NOT", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]},
+            {"predicate": "ctx_has", "args": ["$ctx", "b"]},
+        ]})
+
+
+def test_implies_requires_two_children(engine):
+    with pytest.raises(ValueError, match="IMPLIES"):
+        engine.evaluate({"op": "IMPLIES", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]},
+        ]})
+
+
+def test_implies_semantics():
+    eng = SocraticEngine()
+    @eng.register("mk")
+    def mk(truth_name, **kw):
+        t = {"TRUE": Truth.TRUE, "FALSE": Truth.FALSE,
+             "UNKNOWN": Truth.UNKNOWN}[truth_name]
+        return PredicateResult(truth=t, certified=(t != Truth.UNKNOWN))
+    def impl(a, b):
+        return eng.evaluate({"op": "IMPLIES", "children": [
+            {"predicate": "mk", "args": [a]},
+            {"predicate": "mk", "args": [b]},
+        ]}).truth
+    assert impl("FALSE", "FALSE") == Truth.TRUE  # ex falso quodlibet
+    assert impl("TRUE", "TRUE") == Truth.TRUE
+    assert impl("TRUE", "FALSE") == Truth.FALSE
+    assert impl("UNKNOWN", "TRUE") == Truth.TRUE
+    assert impl("UNKNOWN", "FALSE") == Truth.UNKNOWN
+
+
+def test_xor_semantics():
+    eng = SocraticEngine()
+    @eng.register("mkx")
+    def mkx(truth_name, **kw):
+        t = {"TRUE": Truth.TRUE, "FALSE": Truth.FALSE,
+             "UNKNOWN": Truth.UNKNOWN}[truth_name]
+        return PredicateResult(truth=t, certified=(t != Truth.UNKNOWN))
+    def xr(a, b):
+        return eng.evaluate({"op": "XOR", "children": [
+            {"predicate": "mkx", "args": [a]},
+            {"predicate": "mkx", "args": [b]},
+        ]}).truth
+    assert xr("TRUE", "FALSE") == Truth.TRUE
+    assert xr("TRUE", "TRUE") == Truth.FALSE
+    assert xr("FALSE", "FALSE") == Truth.FALSE
+    assert xr("UNKNOWN", "TRUE") == Truth.UNKNOWN
+
+
+def test_unknown_operator(engine):
+    with pytest.raises(ValueError, match="Operador no implementado|desconocido"):
+        engine.evaluate({"op": "FOO", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]}]})
+
+
+def test_inject_context(engine):
+    @engine.register("sees_ctx")
+    def sees_ctx(_context, **kw):
+        return PredicateResult(
+            truth=Truth.TRUE if _context.get("type") == "SPEC-1" else Truth.FALSE,
+            certified=True)
+    ev = engine.evaluate({"predicate": "sees_ctx", "inject_context": True},
+                         {"type": "SPEC-1"})
+    assert ev.is_true and ev.certified
+
+
+def test_predicate_returns_non_bool_non_result(engine):
+    @engine.register("bad_pred")
+    def bad_pred(**kw):
+        return "string"
+    with pytest.raises(TypeError, match="bool o PredicateResult"):
+        engine.evaluate({"predicate": "bad_pred"})
+
+
+def test_cached_non_serializable_args_no_cache(engine):
+    calls = []
+    @engine.register("nonser")
+    @cached(ttl=60)
+    def nonser(obj, **kw):
+        calls.append(1)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    class Weird:  # no serializable
+        pass
+    engine.evaluate({"predicate": "nonser", "args": [Weird()]})
+    engine.evaluate({"predicate": "nonser", "args": [Weird()]})
+    assert len(calls) == 2  # args no serializables → sin cache
+
+
+def test_failure_trace_str():
+    from socratic_engine import FailureTrace
+    t = FailureTrace(path=["op:AND", "predicate:x"], source="x",
+                     truth=Truth.UNKNOWN, certified=False,
+                     evidence=None, reason="evidencia insuficiente")
+    s = str(t)
+    assert "✗" in s and "op:AND" in s and "predicate:x" in s
+
+
+# ── COBERTURA: _identify_guilty_children paths restantes ──
+
+def test_implies_diagnose_ante_false_no_guilt():
+    eng = SocraticEngine()
+    @eng.register("mkf")
+    def mkf(val, **kw):
+        t = {"T": Truth.TRUE, "F": Truth.FALSE}[val]
+        return PredicateResult(truth=t, certified=True)
+    # IMPLIES: antecedente FALSE → TRUE automático, sin culpables
+    tree = {"op": "IMPLIES", "children": [
+        {"predicate": "mkf", "args": ["F"]},
+        {"predicate": "mkf", "args": ["T"]},
+    ]}
+    ev = eng.evaluate(tree)
+    assert ev.is_true and ev.certified
+    assert eng.diagnose(tree) == []
+
+
+def test_implies_diagnose_uncertified_consequent_guilty():
+    eng = SocraticEngine()
+    @eng.register("mkc")
+    def mkc(val, **kw):
+        t = {"T": Truth.TRUE, "F": Truth.FALSE, "U": Truth.UNKNOWN}[val]
+        return PredicateResult(truth=t, certified=(t != Truth.UNKNOWN))
+    @eng.register("opinion")
+    def opinion(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    # consecuente = opinión (no certificada) → culpable
+    tree = {"op": "IMPLIES", "children": [
+        {"predicate": "mkc", "args": ["T"]},
+        {"predicate": "opinion"},
+    ]}
+    ev = eng.evaluate(tree)
+    assert not ev.certified
+    traces = eng.diagnose(tree)
+    assert any("opinion" in t.source or "opinion" in str(t) for t in traces)
+
+
+def test_implies_diagnose_uncertified_antecedent_guilty():
+    eng = SocraticEngine()
+    @eng.register("mka")
+    def mka(val, **kw):
+        t = {"T": Truth.TRUE, "F": Truth.FALSE, "U": Truth.UNKNOWN}[val]
+        return PredicateResult(truth=t, certified=(t != Truth.UNKNOWN))
+    @eng.register("opinion2")
+    def opinion2(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    # antecedente = opinión no certificada, consecuente certificado → ante culpable
+    tree = {"op": "IMPLIES", "children": [
+        {"predicate": "opinion2"},
+        {"predicate": "mka", "args": ["T"]},
+    ]}
+    ev = eng.evaluate(tree)
+    assert not ev.certified
+    traces = eng.diagnose(tree)
+    assert any("opinion2" in t.source or "opinion2" in str(t) for t in traces)
+
+
+def test_xor_diagnose_uncertified_children():
+    eng = SocraticEngine()
+    @eng.register("mkx2")
+    def mkx2(val, **kw):
+        t = {"T": Truth.TRUE, "F": Truth.FALSE, "U": Truth.UNKNOWN}[val]
+        return PredicateResult(truth=t, certified=(t != Truth.UNKNOWN))
+    @eng.register("opinion3")
+    def opinion3(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    tree = {"op": "XOR", "children": [
+        {"predicate": "mkx2", "args": ["T"]},
+        {"predicate": "opinion3"},
+    ]}
+    ev = eng.evaluate(tree)
+    assert not ev.certified
+    traces = eng.diagnose(tree)
+    assert len(traces) >= 1  # al menos el hijo no certificado
+
+
+def test_unknown_operator_diagnose_fallback():
+    eng = SocraticEngine()
+    # operador desconocido en un nodo que no es predicate/op válido
+    # el engine lanza ValueError al evaluar, pero _identify_guilty_children
+    # con op desconocido → fallback a hijos no certificados (probado vía
+    # un árbol con source="op:GHOST" no ocurre en la práctica; cubrimos el
+    # fallback con un nodo operator válido cuyo source es op:DIALECTICAL_AND
+    # ya cubierto). Aquí probamos que evaluate con op inválido falla:
+    with pytest.raises(ValueError):
+        eng.evaluate({"op": "GHOST", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]}]})
+
+
+# ── COBERTURA: parseador VSL y tree_home ──
+
+def test_parse_vsl_string_keys_and_arrays():
+    from socratic_engine.tree import parse_socratic_block
+    text = '''socratic("N") = {
+      op: "AND",
+      children: [
+        { predicate: "ctx_has", args: ["$ctx", "type"], home: "a" },
+      ],
+      else_home: "b",
+    }'''
+    obj = parse_socratic_block(text)
+    assert obj["op"] == "AND"
+    assert obj["children"][0]["predicate"] == "ctx_has"
+    assert obj["children"][0]["home"] == "a"
+    assert obj["else_home"] == "b"
+
+
+def test_parse_vsl_quoted_values_with_spaces():
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "inject_ctx", args: ["hello world", "x"] }'
+    obj = parse_socratic_block(text)
+    assert obj["args"][0] == "hello world"
+
+
+def test_parse_vsl_int_and_bool_values():
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "n", kwargs: { limit: 5, verbose: true, flag: false } }'
+    obj = parse_socratic_block(text)
+    assert obj["kwargs"] == {"limit": 5, "verbose": True, "flag": False}
+
+
+def test_parse_socratic_no_block_none():
+    from socratic_engine.tree import parse_socratic_block
+    assert parse_socratic_block("no socratic here") is None
+    assert parse_socratic_block('other("x") = {}') is None  # sin "socratic("
+    assert parse_socratic_block("socratic sin formato valido") is None
+
+
+def test_parse_vsl_list_value():
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "in", args: [["a", "b"], "a"] }'
+    obj = parse_socratic_block(text)
+    assert obj["args"][0] == ["a", "b"]
+
+
+def test_tree_home_none_tree_and_unknown_routing():
+    from socratic_engine.tree import tree_home
+    eng = SocraticEngine()
+    # árbol None → None
+    assert tree_home(None, "SPEC-1", eng) is None
+    # child UNKNOWN → None (no conceder silenciosamente)
+    @eng.register("unk_pred")
+    def unk_pred(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    tree = {"children": [{"predicate": "unk_pred", "home": "a"}], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", eng) is None
+
+
+def test_tree_home_descends_into_subtree():
+    from socratic_engine.tree import tree_home
+    eng = SocraticEngine()
+    @eng.register("t")
+    def t(which, **kw):
+        return PredicateResult(truth=Truth.TRUE if which == "yes" else Truth.FALSE,
+                               certified=True)
+    # op TRUE sin home → descender al primer hijo TRUE con home
+    tree = {"children": [
+        {"op": "AND", "children": [
+            {"predicate": "t", "args": ["yes"], "home": "deep"},
+            {"predicate": "t", "args": ["yes"]},
+        ]},
+    ], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", eng) == "deep"
+
+
+def test_tree_home_else_home_when_no_true():
+    from socratic_engine.tree import tree_home
+    eng = SocraticEngine()
+    @eng.register("no")
+    def no(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=True)
+    tree = {"children": [{"predicate": "no", "home": "a"}], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", eng) == "b"
+
+
+def test_tree_home_exception_safe():
+    from socratic_engine.tree import tree_home
+    eng = SocraticEngine()
+    # predicado que lanza ValueError en evaluate → se ignora el hijo
+    tree = {"children": [{"predicate": "does_not_exist", "home": "a"}], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", eng) == "b"
+
+
+# ── COBERTURA: edge cases trend / feedback_loop / cache.clear ──
+
+def test_trend_up_noise_drop_returns_false(engine):
+    # serie con caída > 1/3 del rango → ruido, no tendencia → FALSE certificado
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 5, 1, 5]]})
+    assert ev.is_false and ev.certified
+
+
+def test_trend_up_insufficient_unknown(engine):
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_up_non_numeric_unknown(engine):
+    ev = engine.evaluate({"predicate": "trend_up", "args": [["a", "b"]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_down_non_numeric_unknown(engine):
+    ev = engine.evaluate({"predicate": "trend_down", "args": [["x"]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_down_noise_rise_returns_false(engine):
+    ev = engine.evaluate({"predicate": "trend_down", "args": [[5, 1, 5, 1]]})
+    assert ev.is_false and ev.certified
+
+
+def test_feedback_loop_self_loop_not_counted(engine):
+    # self-loop no es ciclo de feedback (longitud mínima 2)
+    ev = engine.evaluate({"predicate": "feedback_loop",
+                          "args": [{"a": ["a"]}, "a"]})
+    assert ev.is_false and ev.certified
+
+
+def test_cache_clear(engine):
+    calls = []
+    @engine.register("cnt")
+    @cached(ttl=60)
+    def cnt(**kw):
+        calls.append(1)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    engine.evaluate({"predicate": "cnt"})
+    engine.evaluate({"predicate": "cnt"})
+    assert len(calls) == 1
+    engine.cache.clear()
+    engine.evaluate({"predicate": "cnt"})
+    assert len(calls) == 2
+
+
+def test_cached_args_not_serializable_fallback(engine):
+    # objeto no serializable (sin __str__ usable) → sin cache, llama directo
+    class Unserializable:
+        def __str__(self):
+            raise TypeError("no se puede serializar")
+    calls = []
+    @engine.register("nser2")
+    @cached(ttl=60)
+    def nser2(**kw):
+        calls.append(1)
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    engine.evaluate({"predicate": "nser2", "kwargs": {"obj": Unserializable()}})
+    engine.evaluate({"predicate": "nser2", "kwargs": {"obj": Unserializable()}})
+    assert len(calls) == 2
+
+
+# ── COBERTURA FINAL: operators, diagnose, tree_home, parser ──
+
+def test_dialectical_and_with_unknown_child_uncertified(engine):
+    # DIALECTICAL_AND con hijo UNKNOWN → UNKNOWN no certificado (655)
+    @engine.register("u")
+    def u(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    ev = engine.evaluate({"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "u"},
+        {"predicate": "ctx_has", "args": ["$ctx", "type"]},
+    ]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_evaluate_invalid_node_raises(engine):
+    with pytest.raises(ValueError, match="Nodo inválido"):
+        engine.evaluate(42)
+    with pytest.raises(ValueError, match="Nodo inválido"):
+        engine.evaluate("literal")
+
+
+def test_find_failure_traces_operator_without_op_source(engine):
+    # nodo operador cuyo source NO empieza con "op:" → fallback: todos los
+    # hijos no-certificados son sospechosos (816)
+    from socratic_engine import find_failure_traces
+    @engine.register("cert_true")
+    def cert_true(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    @engine.register("uncert_true")
+    def uncert_true(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    # árbol: AND con un hijo no certificado
+    ev = engine.evaluate({"op": "AND", "children": [
+        {"predicate": "cert_true"},
+        {"predicate": "uncert_true"},
+    ]})
+    assert not ev.certified
+    traces = find_failure_traces(ev)
+    assert any("uncert_true" in t.source or "uncert_true" in str(t) for t in traces)
+
+
+def test_leaf_failure_reason_false(engine):
+    from socratic_engine import find_failure_traces
+    @engine.register("f_leaf")
+    def f_leaf(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=False)
+    ev = engine.evaluate({"predicate": "f_leaf"})
+    traces = find_failure_traces(ev)
+    assert any("retornó FALSE" in t.reason for t in traces)
+
+
+def test_dialectical_guilty_conflict_certified_no_guilt(engine):
+    # conflicto dialéctico certificado → NO hay hijos culpables (863-865)
+    @engine.register("ct")
+    def ct(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    @engine.register("cf")
+    def cf(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=True)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "ct"},
+        {"predicate": "cf"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_unknown and ev.certified
+    assert engine.diagnose(tree) == []
+
+
+def test_dialectical_guilty_conflict_uncertified_children(engine):
+    # conflicto con un hijo NO certificado → culpables = hijos no certificados (866)
+    @engine.register("ct2")
+    def ct2(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    @engine.register("uf2")
+    def uf2(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=False)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "ct2"},
+        {"predicate": "uf2"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert not ev.certified
+    traces = engine.diagnose(tree)
+    assert any("uf2" in t.source or "uf2" in str(t) for t in traces)
+
+
+def test_or_guilty_true_uncertified(engine):
+    # OR: no hay TRUE certificado, hay TRUE no certificado → culpables = TRUE uncertified (872-876)
+    @engine.register("tf")
+    def tf(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    tree = {"op": "OR", "children": [{"predicate": "tf"}]}
+    ev = engine.evaluate(tree)
+    assert not ev.certified
+    traces = engine.diagnose(tree)
+    assert len(traces) >= 1
+
+
+def test_not_guilty_uncertified_child(engine):
+    # NOT: hijo no certificado → culpable (882)
+    @engine.register("nt")
+    def nt(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    tree = {"op": "NOT", "children": [{"predicate": "nt"}]}
+    ev = engine.evaluate(tree)
+    assert not ev.certified
+    traces = engine.diagnose(tree)
+    assert len(traces) >= 1
+
+
+def test_implies_guilty_wrong_arity(engine):
+    # IMPLIES con arity != 2 → culpables = hijos no certificados (886)
+    @engine.register("it")
+    def it(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    tree = {"op": "IMPLIES", "children": [
+        {"predicate": "it"},
+        {"predicate": "it"},
+        {"predicate": "it"},
+    ]}
+    # evaluate lanza por arity inválido → no evaluamos, solo confirmamos que
+    # el guard de arity de _evaluate_operator es el que protege
+    with pytest.raises(ValueError, match="IMPLIES"):
+        engine.evaluate(tree)
+
+
+def test_xor_guilty_uncertified(engine):
+    # XOR: hijo no certificado → culpable (903)
+    @engine.register("xt")
+    def xt(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=False)
+    tree = {"op": "XOR", "children": [{"predicate": "xt"}]}
+    ev = engine.evaluate(tree)
+    assert not ev.certified
+    traces = engine.diagnose(tree)
+    assert len(traces) >= 1
+
+
+# ── COBERTURA FINAL 2: huecos dirigidos ──
+
+def test_type_has_empty_unknown(engine):
+    ev = engine.evaluate({"predicate": "type_has", "args": ["", "token"]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_down_non_numeric_two_elements(engine):
+    ev = engine.evaluate({"predicate": "trend_down", "args": [["a", "b"]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_down_min_delta_not_met(engine):
+    # caída 2 < min_delta 5 → FALSE certificado (420)
+    ev = engine.evaluate({"predicate": "trend_down", "args": [[10, 8], 5]})
+    assert ev.is_false and ev.certified
+
+
+def test_feedback_loop_seen_path_skip(engine):
+    # grafo con ciclo compartido: el camino (node, nxt) ya visto → continue (474)
+    # a → b → a  y  a → c → a: el segundo par a→b ya fue visto
+    ev = engine.evaluate({"predicate": "feedback_loop",
+                          "args": [{"a": ["b", "c"], "b": ["a"], "c": ["a"]}, "a"]})
+    assert ev.is_true and ev.certified
+
+
+def test_evaluate_literal_true(engine):
+    ev = engine.evaluate(True)
+    assert ev.is_true and not ev.certified
+    ev = engine.evaluate(False)
+    assert ev.is_false and not ev.certified
+
+
+def test_find_failure_traces_returns_empty_for_certified(engine):
+    from socratic_engine import find_failure_traces
+    @engine.register("ok")
+    def ok(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    ev = engine.evaluate({"predicate": "ok"})
+    assert find_failure_traces(ev) == []
+
+
+def test_tree_home_subtree_true_no_home_continue(engine):
+    # op TRUE sin home y sin hijos con home → continue, no return
+    from socratic_engine.tree import tree_home
+    @engine.register("yes")
+    def yes(**kw):
+        return PredicateResult(truth=Truth.TRUE, certified=True)
+    tree = {"children": [
+        {"op": "AND", "children": [{"predicate": "yes"}]},
+    ], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", engine) == "b"
+
+
+def test_tree_home_resolve_non_dict_none(engine):
+    from socratic_engine.tree import tree_home
+    # _resolve con nodo no-dict → None (220)
+    tree = {"children": [42], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", engine) == "b"
+
+
+def test_tree_home_child_exception_continue(engine):
+    from socratic_engine.tree import tree_home
+    # hijo con predicado inexistente lanza ValueError → continue (225-226)
+    tree = {"children": [
+        {"predicate": "ghost_pred", "home": "a"},
+        {"predicate": "ctx_has", "args": ["$ctx", "type"], "home": "c"},
+    ], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", engine) == "c"
+
+
+# ── COBERTURA: parser VSL restante ──
+
+def test_parse_vsl_dict_key_quoted_after_comma():
+    # dict con key string entre comillas dentro de lista (123-127, 136)
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "p", kwargs: { "key with space": 1, x: 2 } }'
+    obj = parse_socratic_block(text)
+    assert obj["kwargs"] == {"key with space": 1, "x": 2}
+
+
+def test_parse_vsl_nested_dict_with_quoted_key():
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "p", kwargs: { meta: { "inner": "v", "arr": [1, 2, 3] } } }'
+    obj = parse_socratic_block(text)
+    assert obj["kwargs"]["meta"]["inner"] == "v"
+    assert obj["kwargs"]["meta"]["arr"] == [1, 2, 3]
+
+
+def test_parse_vsl_array_break_at_end():
+    # array sin cierre explícito antes de fin de input (150)
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: "p", args: [1, 2'
+    obj = parse_socratic_block(text)
+    assert obj["args"] == [1, 2]
+
+
+def test_parse_vsl_float_bare_word():
+    # bare word que no es int → word (word en el parser)
+    from socratic_engine.tree import parse_socratic_block
+    text = 'socratic("N") = { predicate: p, args: [abc] }'
+    obj = parse_socratic_block(text)
+    assert obj["predicate"] == "p"
+    assert obj["args"] == ["abc"]
+
+
+def test_parse_socratic_block_no_regex_match():
+    from socratic_engine.tree import parse_socratic_block
+    # "socratic(" presente pero sin formato "NAME) = {" → None (194/198)
+    assert parse_socratic_block("socratic( x ) = {") is None
+    assert parse_socratic_block("socratic(NAME) without equals") is None
+
+
+def test_parse_vsl_value_bare_dict_after_body():
+    # body empieza con { pero obj no dict → None
+    from socratic_engine.tree import parse_socratic_block
+    assert parse_socratic_block('socratic("N") = [1, 2]') is None
+
+
+# ── COBERTURA: arista duplicada en feedback_loop (474) ──
+
+def test_feedback_loop_duplicate_edge_skip(engine):
+    # el MISMO par (node, nxt) aparece 2 veces → continue en seen_paths (474)
+    ev = engine.evaluate({"predicate": "feedback_loop",
+                          "args": [{"a": ["b", "b"], "b": ["a"]}, "a"]})
+    assert ev.is_true and ev.certified
+
+
+def test_implies_arity_wrong_raises_before_guilty(engine):
+    # IMPLIES arity != 2: evaluate lanza en _evaluate_operator — el guard de
+    # arity en _identify_guilty_children (886) es inalcanzable vía flujo normal
+    with pytest.raises(ValueError, match="IMPLIES"):
+        engine.evaluate({"op": "IMPLIES", "children": [
+            {"predicate": "ctx_has", "args": ["$ctx", "a"]},
+            {"predicate": "ctx_has", "args": ["$ctx", "b"]},
+            {"predicate": "ctx_has", "args": ["$ctx", "c"]},
+        ]})
+
+
+# ── COBERTURA FINAL tree.py: parser VSL y tree_home ──
+
+def test_parse_vsl_dict_no_close():
+    from socratic_engine.tree import _parse_vsl_value
+    # espacio final → el while de skip avanza al final → break (117) + 107
+    v, i = _parse_vsl_value('{ a: 1 ', 0)
+    assert v == {"a": 1} and i == len('{ a: 1 ')
+
+
+def test_parse_vsl_no_spaces_keyword():
+    from socratic_engine.tree import _parse_vsl_value
+    v, i = _parse_vsl_value('{a:1}', 0)     # 136: palabra clave sin espacios
+    assert v == {"a": 1} and i == 5
+
+
+def test_parse_vsl_array_no_close():
+    from socratic_engine.tree import _parse_vsl_value
+    v, i = _parse_vsl_value('[1, 2 ', 0)    # 150: fin de input en array con espacio
+    assert v == [1, 2]
+
+
+def test_tree_home_resolve_exception_returns_none(engine):
+    from socratic_engine.tree import tree_home
+    # _resolve con predicado que lanza ValueError → return None (225-226)
+    @engine.register("boom")
+    def boom(**kw):
+        raise ValueError("fallo interno")
+    tree = {"children": [
+        {"op": "AND", "children": [{"predicate": "boom", "home": "a"}]},
+        {"predicate": "ctx_has", "args": ["$ctx", "type"], "home": "c"},
+    ], "else_home": "b"}
+    # op TRUE lanza en _resolve → None, sigue al siguiente child
+    assert tree_home(tree, "SPEC-1", engine) == "c"
+
+
+def test_tree_home_subtree_returns_first_home(engine):
+    from socratic_engine.tree import tree_home
+    @engine.register("tr")
+    def tr(val, **kw):
+        return PredicateResult(truth=Truth.TRUE if val == "y" else Truth.FALSE,
+                               certified=True)
+    tree = {"children": [
+        {"op": "OR", "children": [
+            {"predicate": "tr", "args": ["n"], "home": "no"},
+            {"predicate": "tr", "args": ["y"], "home": "yes"},
+        ]},
+    ], "else_home": "b"}
+    assert tree_home(tree, "SPEC-1", engine) == "yes"
+
+
+def test_tree_home_child_unknown_skips_and_no_concede(engine):
+    from socratic_engine.tree import tree_home
+    @engine.register("unk")
+    def unk(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    @engine.register("fls")
+    def fls(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=True)
+    tree = {"children": [
+        {"predicate": "fls", "home": "a"},
+        {"predicate": "unk", "home": "b"},
+    ], "else_home": "c"}
+    # UNKNOWN presente (aunque ningún TRUE) → None (R9: no conceder silenciosamente)
+    assert tree_home(tree, "SPEC-1", engine) is None
+
+
+# ── COBERTURA: últimos 3 del parser VSL (107, 136, 198) ──
+
+def test_parse_vsl_empty_input():
+    from socratic_engine.tree import _parse_vsl_value
+    v, i = _parse_vsl_value("", 0)      # 107: entrada vacía
+    assert v is None and i == 0
+    v, i = _parse_vsl_value("   ", 0)   # 107: solo espacios
+    assert v is None and i == 3
+
+
+def test_parse_vsl_word_key_then_colon_direct():
+    from socratic_engine.tree import _parse_vsl_value
+    # palabra clave seguida directamente de ':' sin espacio (136: i += 1 tras ':')
+    v, i = _parse_vsl_value("{a:1}", 0)
+    assert v == {"a": 1} and i == 5
+
+
+def test_parse_socratic_block_non_dict_body():
+    from socratic_engine.tree import parse_socratic_block
+    # el regex exige '{' al final de socratic("N") = — el body SIEMPRE empieza
+    # con '{', pero si el parse falla y devuelve no-dict... cubrimos el guard
+    # 198: para forzarlo necesitamos que _parse_vsl_value devuelva no-dict,
+    # lo cual no ocurre con '{' inicial. El guard es defensivo.
+    # Probamos el comportamiento observable: un bloque socratic sin '{'
+    # después de '=' → el regex no matchea → None (194)
+    assert parse_socratic_block('socratic("N") = hello') is None
+
+
+def test_parse_vsl_spaces_before_colon():
+    from socratic_engine.tree import _parse_vsl_value
+    # espacios después de la key antes del ':' → while de espacios (L136)
+    v, i = _parse_vsl_value('{a :1}', 0)
+    assert v == {"a": 1} and i == 6
+
+
+# ── COBERTURA: OR UNKNOWN/FALSE, find_failure_traces operator, leaf UNKNOWN ──
+
+def test_or_with_unknown_returns_unknown(engine):
+    @engine.register("ou")
+    def ou(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    ev = engine.evaluate({"op": "OR", "children": [
+        {"predicate": "ou"},
+        {"predicate": "ctx_has", "args": ["$ctx", "type"]},
+    ]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_or_all_false_returns_false(engine):
+    @engine.register("of")
+    def of(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=True)
+    ev = engine.evaluate({"op": "OR", "children": [
+        {"predicate": "of"},
+        {"predicate": "of"},
+    ]})
+    assert ev.is_false
+    # OR solo certifica con TRUE certificado; todos FALSE → no certificado
+    assert not ev.certified
+
+
+def test_find_failure_traces_operator_without_guilty_children(engine):
+    # operador no certificado cuyos hijos no producen traces → FailureTrace
+    # del operador mismo (825): OR con un hijo UNKNOWN certificado=False y
+    # otro FALSE certificado=False — ambos sin reason de "culpa"
+    from socratic_engine import find_failure_traces
+    @engine.register("uu")
+    def uu(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    @engine.register("ff")
+    def ff(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=False)
+    ev = engine.evaluate({"op": "OR", "children": [
+        {"predicate": "uu"},
+        {"predicate": "ff"},
+    ]})
+    traces = find_failure_traces(ev)
+    assert len(traces) >= 1
+    assert any("OR" in t.source or "OR" in str(t) for t in traces)
+
+
+def test_leaf_failure_reason_unknown(engine):
+    from socratic_engine import find_failure_traces
+    @engine.register("unk_leaf")
+    def unk_leaf(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=False)
+    ev = engine.evaluate({"predicate": "unk_leaf"})
+    traces = find_failure_traces(ev)
+    assert any("UNKNOWN" in t.reason for t in traces)
+
+
+def test_or_all_uncertified_guilty(engine):
+    # OR: todos FALSE/UNKNOWN no-certificados → todos culpables (878)
+    @engine.register("ouf")
+    def ouf(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=False)
+    tree = {"op": "OR", "children": [
+        {"predicate": "ouf"},
+        {"predicate": "ouf"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert not ev.certified
+    traces = engine.diagnose(tree)
+    assert len(traces) >= 1

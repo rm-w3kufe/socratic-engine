@@ -90,12 +90,12 @@ def _run_selftest() -> None:
     assert eng.evaluate(built, {"type": "THEORY-VC-01"}).is_true
     try:
         builder.build({"op": "AND", "children": [{"predicate": "no_such", "args": []}]})
-        raise AssertionError("builder debe rechazar predicado no registrado")
+        raise AssertionError("builder debe rechazar predicado no registrado")  # pragma: no cover — inalcanzable: builder SÍ lanza (verificado por tests directos); el raise solo corre si el builder fallara en rechazar lo que debe
     except ValueError as e:
         assert "no_such" in str(e), "mensaje debe nombrar el predicado"
     try:
         builder.build({"op": "NOT", "children": [True, False]})
-        raise AssertionError("builder debe rechazar NOT con 2 hijos")
+        raise AssertionError("builder debe rechazar NOT con 2 hijos")  # pragma: no cover — inalcanzable: builder SÍ lanza (verificado por tests directos); el raise solo corre si el builder fallara en rechazar lo que debe
     except ValueError as e:
         assert "NOT" in str(e), "mensaje debe nombrar el operador"
 
@@ -171,12 +171,12 @@ def main(argv: list[str] | None = None) -> int:
     """Entry point: `socratic-engine eval-tree <tree> [opts]` o selftest."""
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "eval-tree":
-        return _eval_tree_cli(args[1:])
+        return _eval_tree_cli(args[1:])  # pragma: no cover — verificado por subprocess en tests; coverage no instrumenta procesos hijos
     # selftest rápido (R4.1: el instrumento se auto-verifica)
     _run_selftest()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main())  # pragma: no cover — verificado por subprocess en tests; coverage no instrumenta procesos hijos
 

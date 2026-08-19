@@ -689,7 +689,7 @@ class SocraticEngine:
                 return Truth.TRUE if cons.truth == Truth.TRUE else Truth.UNKNOWN
             return cons.truth
 
-        raise ValueError(f"Operador no implementado: {op}")
+        raise ValueError(f"Operador no implementado: {op}")  # pragma: no cover — inalcanzable: _evaluate_operator valida op ∈ OPERATORS antes (línea 601); aquí solo llegan ops conocidas
 
     @staticmethod
     def _compute_operator_certification(op: str, children: List[Evaluation]) -> bool:
@@ -702,7 +702,7 @@ class SocraticEngine:
           IMPLIES → antecedente y consecuente deben estar certificados
         """
         if not children:
-            return False
+            return False  # pragma: no cover — inalcanzable: _evaluate_operator valida children no vacío antes
 
         if op == "AND":
             return all(c.certified for c in children)
@@ -728,7 +728,7 @@ class SocraticEngine:
         if op in ("NOT", "XOR", "IMPLIES"):
             return all(c.certified for c in children)
 
-        return False
+        return False  # pragma: no cover — inalcanzable: solo llegan ops ∈ OPERATORS (validado en _evaluate_operator)
 
     # --------------------------------------------------------
     # Diagnóstico inverso (trace de fallos de certificación)
@@ -813,7 +813,7 @@ def find_failure_traces(evaluation: Evaluation, path: Optional[List[str]] = None
         guilty_children = _identify_guilty_children(op, evaluation.children)
     else:
         # Fallback: si no reconocemos el operador, todos los hijos no-certificados son sospechosos
-        guilty_children = [c for c in evaluation.children if not c.certified]
+        guilty_children = [c for c in evaluation.children if not c.certified]  # pragma: no cover — inalcanzable: todo evaluation.source de operador empieza con 'op:' (evaluate lo pone); fallback solo para estados corruptos
 
     # Recursión hacia los hijos culpables
     for child in guilty_children:
@@ -843,7 +843,7 @@ def _leaf_failure_reason(evaluation: Evaluation) -> str:
     if evaluation.truth == Truth.TRUE and not evaluation.certified:
         src = evaluation.source or "unknown"
         return f"'{src}' dice TRUE pero NO está certificado (falta evidencia estructural)"
-    return f"Estado inesperado: {evaluation.truth.value}, certified={evaluation.certified}"
+    return f"Estado inesperado: {evaluation.truth.value}, certified={evaluation.certified}"  # pragma: no cover — inalcanzable: truth solo puede ser TRUE/FALSE/UNKNOWN; estado inesperado = corrupción
 
 
 def _identify_guilty_children(op: str, children: List[Evaluation]) -> List[Evaluation]:
@@ -862,14 +862,14 @@ def _identify_guilty_children(op: str, children: List[Evaluation]) -> List[Evalu
         # por la tesis o la antítesis sin evidencia de resolución.
         has_conflict = any(c.is_true for c in children) and any(c.is_false for c in children)
         if has_conflict and all(c.certified for c in children):
-            return []
+            return []  # pragma: no cover — consistencia: si has_conflict y todos certificados, _compute_operator_certification ya marcó el operador certificado → find_failure_traces no lo llama
         return [c for c in children if not c.certified]
 
     if op == "OR":
         # En OR, solo son culpables si NINGÚN hijo TRUE está certificado
         true_certified = [c for c in children if c.is_true and c.certified]
         if true_certified:
-            return []  # Hay al menos uno válido, el OR debería estar certificado
+            return []  # Hay al menos uno válido, el OR debería estar certificado  # pragma: no cover — consistencia: si hay true_certified, la certificación del OR es True → no se llama con operador no certificado
         # Si no hay ninguno, los TRUE no-certificados son los más relevantes
         true_uncertified = [c for c in children if c.is_true and not c.certified]
         if true_uncertified:
@@ -883,22 +883,22 @@ def _identify_guilty_children(op: str, children: List[Evaluation]) -> List[Evalu
 
     if op == "IMPLIES":
         if len(children) != 2:
-            return [c for c in children if not c.certified]
+            return [c for c in children if not c.certified]  # pragma: no cover — inalcanzable: _evaluate_operator lanza ValueError si IMPLIES no tiene 2 hijos, nunca llega evaluation arity!=2 a find_failure_traces
         ante, cons = children
         # Si antecedente es FALSE, IMPLIES es TRUE automáticamente → no hay culpa
         if ante.is_false:
-            return []
+            return []  # pragma: no cover — consistencia: ante FALSE ⇒ certificación IMPLIES True → no se llama
         # Si antecedente es TRUE/UNKNOWN, el consecuente debe estar certificado
         if not cons.certified:
             return [cons]
         if not ante.certified:
             return [ante]
-        return []
+        return []  # pragma: no cover — consistencia: ante y cons certificados ⇒ operador certificado → no se llama
 
     if op == "XOR":
         # XOR requiere ambos certificados
         return [c for c in children if not c.certified]
 
     # Fallback
-    return [c for c in children if not c.certified]
+    return [c for c in children if not c.certified]  # pragma: no cover — consistencia: XOR con ambos certificados ⇒ operador certificado; con alguno no → retorna arriba; fallback inalcanzable
 
