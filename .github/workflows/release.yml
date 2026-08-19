@@ -57,15 +57,7 @@ jobs:
 
       - name: Verify wheel metadata (license sanity — MIT regression guard)
         run: |
-          WHEEL=$(ls dist/*.whl)
-          python -c "
-import zipfile, sys
-with zipfile.ZipFile(sys.argv[1]) as z:
-    meta = z.read([n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]).decode()
-assert 'License: Apache-2.0' in meta, meta
-assert 'MIT License' not in meta, 'MIT residual en metadata — revisar pyproject classifiers'
-print('✓ metadata: Apache-2.0 only')
-" "$WHEEL"
+          python -c 'import zipfile,glob,sys; w=glob.glob("dist/*.whl")[0]; m=[n for n in zipfile.ZipFile(w).namelist() if n.endswith(".dist-info/METADATA")][0]; meta=zipfile.ZipFile(w).read(m).decode(); assert "License: Apache-2.0" in meta, meta; assert "MIT License" not in meta, "MIT residual — revisar pyproject classifiers"; print("✓ metadata: Apache-2.0 only")'
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
