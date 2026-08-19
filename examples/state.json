@@ -1,0 +1,6 @@
+{
+  "services": [
+    {"name": "cache", "declared_active": true, "observed_active": true},
+    {"name": "api", "declared_active": true, "observed_active": false}
+  ]
+}

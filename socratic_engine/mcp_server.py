@@ -78,12 +78,40 @@ class RateLimiter:
 
 
 class SocraticMCP:
-    """JSON-RPC 2.0 server (stdio, newline-delimited) for the engine."""
+    """JSON-RPC 2.0 server (stdio, newline-delimited) for the engine.
 
-    def __init__(self) -> None:
+    Opcional: acepta un StateCanonBridge en el constructor. Si está
+    presente, expone la tool extra `socratic_canon_query` (el bridge es
+    opt-in — R6: el MCP core no depende de state-canon)."""
+
+    def __init__(self, provider: Any = None) -> None:
+        """provider: un StateProvider de state-canon (opt-in). Si se pasa,
+        el MCP registra los predicados canon_* sobre su propio engine y
+        expone la tool extra `socratic_canon_query` (R6: el MCP core no
+        depende de state-canon)."""
         self.engine = SocraticEngine()
         self.builder = SocraticTreeBuilder(self.engine)
         self.rate_limiter = RateLimiter()
+        self.provider = provider
+        self.bridge = None
+        if self.provider is not None:
+            from .bridge_statecanon import StateCanonBridge
+            self.bridge = StateCanonBridge(self.engine, self.provider)
+        self._tools = [
+            {"name": "socratic_evaluate", "description":
+             "Evaluate a socratic tree (JSON or VSL) against a context; "
+             "returns truth/certified/home/explain/diagnose."},
+            {"name": "socratic_diagnose", "description":
+             "Inverse trace: which nodes failed certification."},
+            {"name": "socratic_build", "description":
+             "Validate a proposed tree structure against registered "
+             "predicates (R10.1: proposal validation, not certification)."},
+        ]
+        if self.bridge is not None:
+            self._tools.append({"name": "socratic_canon_query", "description":
+                                "Query state-canon through the registered "
+                                "bridge: canon_query(domain, filter) → "
+                                "TRUE/UNKNOWN certified by evidence."})
 
     # ── tools ──
 
@@ -150,16 +178,7 @@ class SocraticMCP:
         if method == "notifications/initialized":
             return None  # no response to notifications
         if method == "tools/list":
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": [
-                {"name": "socratic_evaluate", "description":
-                 "Evaluate a socratic tree (JSON or VSL) against a context; "
-                 "returns truth/certified/home/explain/diagnose."},
-                {"name": "socratic_diagnose", "description":
-                 "Inverse trace: which nodes failed certification."},
-                {"name": "socratic_build", "description":
-                 "Validate a proposed tree structure against registered "
-                 "predicates (R10.1: proposal validation, not certification)."},
-            ]}}
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": self._tools}}
         if method == "tools/call":
             params = req.get("params", {})
             name = params.get("name", "")
@@ -181,6 +200,17 @@ class SocraticMCP:
                     result = self.socratic_diagnose(args.get("tree"), args.get("context"))
                 elif name == "socratic_build":
                     result = self.socratic_build(args.get("tree"))
+                elif name == "socratic_canon_query":
+                    if self.bridge is None:
+                        return self._error(req_id, -32601,
+                                           "No state-canon bridge registered")
+                    ev = self.engine.evaluate(
+                        {"predicate": "canon_query",
+                         "args": [args.get("domain"), args.get("filter")]})
+                    result = {"truth": ev.truth.name,
+                              "certified": ev.certified,
+                              "evidence": ev.evidence,
+                              "explain": ev.explain()}
                 else:
                     return self._error(req_id, -32601, f"Unknown tool: {name}")
                 return {"jsonrpc": "2.0", "id": req_id,

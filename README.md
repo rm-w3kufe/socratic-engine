@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.1 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, and a 162-test suite at 100% statement coverage are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.1 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, and a 189-test suite at 100% statement coverage are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -623,12 +623,67 @@ The current bridge exposes:
 | `socratic_build` | validate a proposed reasoning tree |
 | `socratic_evaluate` | execute a tree against context |
 | `socratic_diagnose` | return inverse failure traces |
+| `socratic_canon_query` | (opt-in) query state-canon through the registered bridge |
 
 The MCP layer is intentionally thin.
 
 It includes a per-tool sliding-window rate limiter (`SOCRATIC_MCP_RATE_LIMIT`, default 100 calls / `SOCRATIC_MCP_RATE_WINDOW`, default 60s): a rate-limited call returns error `-32029` with `retry_after_s` — a transient signal, not a rejection.
 
 The reasoning contract remains in the engine.
+
+---
+
+## Bridge to `state-canon` (official)
+
+The official integration between the engine and **state-canon** lives in
+[`socratic_engine/bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py).
+
+**Division of labor** (from the "Relationship to `state-canon`" section):
+
+> **state-canon grounds the agent in what is observed.**
+> **socratic-engine constrains how claims about that state are evaluated.**
+
+The bridge registers four predicates on any `SocraticEngine`, all prefixed
+`canon_` — they query the provider (the reconciled ground truth, *observed*)
+and convert the result into certified evidence:
+
+| Predicate | Question it answers |
+|---|---|
+| `canon_query(domain, filter)` | Is there at least one record matching the filter? |
+| `canon_matches(domain, filter, expected)` | Do the records match the expected fields exactly? |
+| `canon_field_equals(domain, filter, field, expected)` | Does a specific field equal the expected value? |
+| `canon_drift(domain, filter, declared_field, observed_field)` | Have declared and observed drifted apart? |
+
+`filter` and `expected` accept either a JSON string or a Python dict.
+
+Semantics follow the engine's epistemology (R9 — no silent concession):
+
+- **TRUE / FALSE** are returned **certified** (structural evidence exists).
+- **UNKNOWN** is returned **uncertified** when there is no evidence — no
+  records, an unknown filter field, a missing field, or an unparseable
+  filter. No inventing, no silent routing to `else_home`.
+
+```python
+from socratic_engine import SocraticEngine
+from socratic_engine.bridge_statecanon import StateCanonBridge
+
+eng = SocraticEngine()
+bridge = StateCanonBridge(eng, provider)   # provider: state_canon.StateProvider
+
+ev = eng.evaluate({"op": "DIALECTICAL_AND", "children": [
+    {"predicate": "canon_field_equals",
+     "args": ["services", '{"name": "api"}', "declared_active", True]},
+    {"predicate": "canon_field_equals",
+     "args": ["services", '{"name": "api"}', "observed_active", True]},
+]})
+# declared TRUE, observed FALSE → certified conflict → UNKNOWN certified,
+# with metadata.thesis / metadata.antithesis — the dialectical operator
+# turns the drift into productive indetermination, not a false binary.
+```
+
+The MCP server accepts an optional `provider` (opt-in, R6): when set, the
+`canon_*` predicates are registered and `socratic_canon_query` appears in
+`tools/list`.
 
 ---
 
@@ -686,7 +741,7 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-162 passed
+189 passed
 ```
 
 at 100% statement coverage (CI gates at 90%; uncovered lines are
@@ -717,11 +772,13 @@ socratic-engine/
 │   ├── engine.py           # trivalent evaluator + certification + diagnosis
 │   ├── tree.py             # builder + VSL parser + tree routing
 │   ├── cli.py              # command-line interface
-│   └── mcp_server.py       # MCP / JSON-RPC bridge + rate limiter
+│   ├── mcp_server.py       # MCP / JSON-RPC bridge + rate limiter
+│   └── bridge_statecanon.py # official state-canon bridge (opt-in)
 └── tests/
     ├── test_engine.py
     ├── test_mcp_server.py
     ├── test_cli.py
+    ├── test_bridge_statecanon.py
     └── test_state_canon_integration.py
 ```
 

@@ -34,9 +34,9 @@
 
 ### Ecosistema
 - [x] Publicar en PyPI (pip install socratic-engine) — **0.2.0 publicado** https://pypi.org/project/socratic-engine/0.2.0/ (verificado: instalación desde PyPI + dialéctico operativo)
-- [ ] Bridge oficial con state-canon-mcp
-- [ ] Ejemplo end-to-end con Claude Code
-- [ ] Ejemplo end-to-end con OpenCode
+- [x] Bridge oficial con state-canon-mcp (socratic_engine/bridge_statecanon.py: predicados canon_query/canon_matches/canon_field_equals/canon_drift — evidencia certificada desde el provider; MCP opt-in vía provider=; tests dedicados 100% cobertura)
+- [x] Ejemplo end-to-end con Claude Code (examples/claude-code-end-to-end.md: .mcp.json + wrapper con bridge; **verificación en vivo PENDIENTE** — VERIFY-E2E-CLAUDE-CODE, requiere tokens Anthropic; contrato MCP verificado sin LLM en examples/mcp-contract-check.sh)
+- [x] Ejemplo end-to-end con OpenCode (examples/opencode-end-to-end.md: config MCP + wrapper bridge + escenario declared/observed; contrato MCP verificado)
 
 ## 🚀 Objetivo v0.3.0: Extensión Formal
 - [ ] Lógica paraconsistente (contradicciones certificadas)
