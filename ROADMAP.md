@@ -14,12 +14,12 @@
 ### Documentación
 - [x] README con visión completa (The Problem + Philosophy)
 - [x] docs/ONTOLOGY.md (ontología epistémica)
-- [ ] docs/ARCHITECTURE.md (cómo encaja con state-canon, VSM)
-- [ ] docs/EXAMPLES.md (casos de uso reales)
+- [x] docs/ARCHITECTURE.md (cómo encaja con state-canon, VSM)
+- [x] docs/EXAMPLES.md (casos de uso reales)
 
 ### Tests y Calidad
-- [ ] GitHub Actions CI (pytest en cada push)
-- [ ] Coverage report (objetivo: >90%)
+- [x] GitHub Actions CI (pytest en cada push)
+- [ ] Coverage report (objetivo: >90%) — CI reporta coverage, umbral actual 50% (gate del 90% cuando la suite cubra más)
 - [ ] Tests de integración con state-canon
 - [ ] Benchmarks de performance
 
