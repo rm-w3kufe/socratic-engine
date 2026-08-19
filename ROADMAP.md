@@ -33,7 +33,7 @@
 - [x] Rate limiting en MCP server
 
 ### Ecosistema
-- [ ] Publicar en PyPI (pip install socratic-engine) — pendiente: sin acceso al registry
+- [x] Publicar en PyPI (pip install socratic-engine) — **0.2.0 publicado** https://pypi.org/project/socratic-engine/0.2.0/ (verificado: instalación desde PyPI + dialéctico operativo)
 - [ ] Bridge oficial con state-canon-mcp
 - [ ] Ejemplo end-to-end con Claude Code
 - [ ] Ejemplo end-to-end con OpenCode
