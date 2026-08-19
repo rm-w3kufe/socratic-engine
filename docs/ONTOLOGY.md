@@ -37,9 +37,40 @@ La certificación se propaga recursivamente según reglas específicas:
 | NOT | El hijo certificado |
 | XOR | Ambos hijos certificados |
 | IMPLIES | Antecedente Y consecuente certificados |
+| DIALECTICAL_AND | En conflicto: TODOS los hijos certificados (la contradicción misma es un hecho); sin conflicto: todos los hijos certificados |
 
 Esto garantiza que una certificación compuesta solo sea TRUE si TODAS las partes
 relevantes tienen evidencia estructural.
+
+## Operador Dialéctico (DIALECTICAL_AND)
+
+La dialéctica hegeliana aplicada a la certificación: **tesis + antítesis → síntesis**.
+
+Un AND normal cortocircuita a FALSE ante cualquier hijo FALSE — una contradicción
+es un rechazo. Pero hay contradicciones **legítimas**: dos afirmaciones opuestas,
+AMBAS con evidencia estructural certificada (p.ej. un servicio dice "arriba" y un
+healthcheck externo dice "caído"). Rechazar es tomar partido por la antítesis;
+aprobar es tomar partido por la tesis. Ambas serían una concesión silenciosa.
+
+`DIALECTICAL_AND` trata la contradicción certificada como **indeterminación
+productiva**:
+
+- Todos los hijos TRUE → `TRUE` certificado (sin tensión)
+- Todos los hijos FALSE → `FALSE` certificado (sin tensión)
+- Mezcla TRUE/FALSE, TODOS certificados → `UNKNOWN` **certificado**, con
+  `metadata.dialectical_conflict=true` y la tesis/antítesis documentadas con su
+  evidencia (qué hijos afirman, cuáles niegan)
+- Mezcla TRUE/FALSE con algún hijo NO certificado → `UNKNOWN` no certificado
+  (falta de evidencia, no tensión establecida)
+
+El `UNKNOWN` certificado es distinto del `UNKNOWN` ordinario: no es "no hay
+evidencia", es "hay evidencia en conflicto". El nivel superior debe **sintetizar**
+— el resultado conserva la tensión completa en metadata para que esa síntesis sea
+posible sin perder información.
+
+El diagnóstico (`diagnose()`) NO señala hijos culpables en un conflicto
+certificado: apuntar a un hijo sería tomar partido por la tesis o la antítesis.
+La contradicción misma es el estado a resolver en el nivel superior.
 
 ## El Papel del LLM (R10)
 

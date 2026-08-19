@@ -111,7 +111,7 @@ class SocraticEngine:
     y conserva el rastro completo del razonamiento.
     """
 
-    OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES"}
+    OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES", "DIALECTICAL_AND"}
 
     def __init__(self):
         self.predicates: Dict[str, Predicate] = {}
@@ -376,12 +376,29 @@ class SocraticEngine:
         # Certificación del operador: solo si TODOS los hijos relevantes están certificados
         certified = self._compute_operator_certification(op, children)
 
+        # Metadata dialéctica: cuando hay conflicto certificado, documentar
+        # exactamente la tensión (qué hijos afirman, cuáles niegan, con qué
+        # evidencia) para que el nivel superior pueda sintetizar.
+        metadata: Dict[str, Any] = {}
+        if op == "DIALECTICAL_AND":
+            affirm = [c for c in children if c.is_true]
+            deny = [c for c in children if c.is_false]
+            if affirm and deny:
+                metadata["dialectical_conflict"] = True
+                metadata["thesis"] = [
+                    {"source": c.source, "evidence": c.evidence} for c in affirm
+                ]
+                metadata["antithesis"] = [
+                    {"source": c.source, "evidence": c.evidence} for c in deny
+                ]
+
         return Evaluation(
             truth=truth,
             certified=certified,
             source=f"op:{op}",
             children=children,
             context=ctx.copy(),
+            metadata=metadata,
         )
 
     @staticmethod
@@ -394,6 +411,21 @@ class SocraticEngine:
             if any(t == Truth.UNKNOWN for t in truths):
                 return Truth.UNKNOWN
             return Truth.TRUE
+
+        if op == "DIALECTICAL_AND":
+            # Dialéctico: la contradicción certificada (tesis TRUE + antítesis
+            # FALSE, ambas con evidencia) NO es rechazo ni aprobación — es
+            # indeterminación productiva. El truth se decide aquí; la metadata
+            # del conflicto la inyecta _evaluate_operator.
+            if any(t == Truth.UNKNOWN for t in truths):
+                return Truth.UNKNOWN
+            if all(t == Truth.TRUE for t in truths):
+                return Truth.TRUE
+            if all(t == Truth.FALSE for t in truths):
+                return Truth.FALSE
+            # Mezcla TRUE+FALSE (todos decididos): conflicto → no se decide
+            # en este nivel; la síntesis es del nivel superior.
+            return Truth.UNKNOWN
 
         if op == "OR":
             if any(t == Truth.TRUE for t in truths):
@@ -439,6 +471,20 @@ class SocraticEngine:
             return False
 
         if op == "AND":
+            return all(c.certified for c in children)
+
+        if op == "DIALECTICAL_AND":
+            # Si hay conflicto decidido (mezcla TRUE+FALSE) y TODOS los hijos
+            # están certificados, la contradicción misma es un hecho
+            # certificado: certified=True con truth=UNKNOWN (evidencia en
+            # conflicto ≠ falta de evidencia). Si falta certificación, se
+            # aplica la regla AND.
+            has_conflict = (
+                any(c.is_true for c in children)
+                and any(c.is_false for c in children)
+            )
+            if has_conflict:
+                return all(c.certified for c in children)
             return all(c.certified for c in children)
 
         if op == "OR":
@@ -573,6 +619,16 @@ def _identify_guilty_children(op: str, children: List[Evaluation]) -> List[Evalu
     """
     if op == "AND":
         # En AND, CUALQUIER hijo no-certificado o FALSE/UNKNOWN es culpable
+        return [c for c in children if not c.certified]
+
+    if op == "DIALECTICAL_AND":
+        # Un conflicto dialéctico certificado NO tiene hijos "culpables"
+        # individuales: la contradicción misma es el estado a resolver en el
+        # nivel superior (la síntesis). Apuntar a un hijo sería tomar partido
+        # por la tesis o la antítesis sin evidencia de resolución.
+        has_conflict = any(c.is_true for c in children) and any(c.is_false for c in children)
+        if has_conflict and all(c.certified for c in children):
+            return []
         return [c for c in children if not c.certified]
 
     if op == "OR":

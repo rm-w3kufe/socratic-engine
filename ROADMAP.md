@@ -24,7 +24,7 @@
 - [ ] Benchmarks de performance
 
 ### Features
-- [ ] Operador dialéctico (DIALECTICAL_AND para contradicciones legítimas)
+- [x] Operador dialéctico (DIALECTICAL_AND para contradicciones legítimas)
 - [ ] Predicados pragmáticos (feedback loops, tendencias temporales)
 - [ ] Cache TTL para predicados costosos
 - [ ] Rate limiting en MCP server

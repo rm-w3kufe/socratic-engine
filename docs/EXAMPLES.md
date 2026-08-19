@@ -190,3 +190,45 @@ Note the `= ` between the name and `{` — the parser regex requires it.
 | Parse a VSL block | — | `parse_socratic_block(text)` |
 | Register a predicate | (domain predicates via engine) | `@engine.register("name")` |
 | MCP bridge | `socratic-engine-mcp` | `SocraticMCP.evaluate/diagnose/build` |
+---
+
+## 6. Dialectical AND — certified contradiction (v0.2.0)
+
+A service says "up" (`systemd`), an external healthcheck says "down".
+Both are certified structural evidence — rejecting one is taking a side.
+`DIALECTICAL_AND` surfaces the tension instead:
+
+```python
+from socratic_engine import SocraticEngine, PredicateResult, Truth
+
+engine = SocraticEngine()
+
+@engine.register("systemd_says_up")
+def systemd_says_up(name, **kw):
+    # deterministic: systemctl is-active
+    return PredicateResult(truth=Truth.TRUE, certified=True,
+                           evidence={"check": "systemctl is-active", "name": name})
+
+@engine.register("healthcheck_says_down")
+def healthcheck_says_down(url, **kw):
+    # deterministic: HTTP probe from outside the host
+    return PredicateResult(truth=Truth.FALSE, certified=True,
+                           evidence={"probe": url, "status": 503})
+
+tree = {"op": "DIALECTICAL_AND", "children": [
+    {"predicate": "systemd_says_up", "args": ["cache"]},
+    {"predicate": "healthcheck_says_down", "args": ["http://cache:8080/health"]},
+]}
+
+ev = engine.evaluate(tree)
+print(ev.truth, ev.certified)              # Truth.UNKNOWN True
+print(ev.metadata["dialectical_conflict"]) # True
+print(ev.metadata["thesis"])               # [{"source": "systemd_says_up", "evidence": {...}}]
+print(ev.metadata["antithesis"])           # [{"source": "healthcheck_says_down", "evidence": {...}}]
+print(engine.diagnose(tree))               # [] — no guilty child; the contradiction is the state
+```
+
+The upper level receives a **certified UNKNOWN** with the full tension:
+"evidence in conflict", not "no evidence". It must synthesize (e.g.
+escalate to a human, or probe a third source) — it cannot silently pick
+a side.

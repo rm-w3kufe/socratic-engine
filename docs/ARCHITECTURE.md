@@ -83,7 +83,7 @@ parent `Evaluation`.
 
 ### Operators
 
-`SocraticEngine.OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES"}`.
+`SocraticEngine.OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES", "DIALECTICAL_AND"}`.
 
 Certification propagates per-operator (the exact rules live in
 ONTOLOGY.md):
@@ -93,6 +93,9 @@ ONTOLOGY.md):
 - **NOT** — child certified
 - **XOR** — both children certified
 - **IMPLIES** — antecedent AND consequent certified
+- **DIALECTICAL_AND** — in conflict: all children certified (the
+  contradiction itself is a certified fact); without conflict: all
+  children certified
 
 ### Predicates
 
@@ -117,6 +120,18 @@ decided), the router does **not** silently fall to `else_home` — it
 returns `None` (the `?` state). A router must not route a decision it
 could not make. This is the R9 no-silent-concession rule made concrete
 in the engine.
+
+### DIALECTICAL_AND — certified contradiction
+
+A plain AND short-circuits to FALSE on any FALSE child — contradiction
+is rejection. But a *legitimate* contradiction (opposite claims, BOTH
+certified with structural evidence) is not rejection and not approval:
+deciding would take a side. `DIALECTICAL_AND` yields `UNKNOWN`
+**certified** with the full tension in metadata
+(`dialectical_conflict`, `thesis[]`, `antithesis[]`) so the upper level
+can synthesize. A certified `UNKNOWN` is "evidence in conflict", not
+"no evidence". `diagnose()` reports no guilty children for a certified
+conflict — blaming a child would be taking a side. See ONTOLOGY.md.
 
 ## The truth/certification split
 

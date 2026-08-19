@@ -5,6 +5,7 @@ import pytest
 from socratic_engine import (
     SocraticEngine,
     SocraticTreeBuilder,
+    PredicateResult,
     Truth,
     tree_home,
     parse_socratic_block,
@@ -214,3 +215,88 @@ def test_kwargs_nested_node_still_evaluates(engine):
     ]}
     ev = engine.evaluate(tree, {"type": "VSL-X"})
     assert ev.is_true, "nodo anidado en kwargs debe evaluarse"
+
+
+# ── OPERADOR DIALÉCTICO (DIALECTICAL_AND) — v0.2.0 ──
+
+def _mk_pred(engine, name, result):
+    """Predicado determinista con truth fijo y certificación True."""
+    @engine.register(name)
+    def pred(**kw):
+        return PredicateResult(truth=result, certified=True,
+                               evidence={f"{name}_evidence": True})
+    return pred
+
+
+def test_dialectical_and_all_true(engine):
+    _mk_pred(engine, "thesis_a", Truth.TRUE)
+    _mk_pred(engine, "thesis_b", Truth.TRUE)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "thesis_a"},
+        {"predicate": "thesis_b"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_true
+    assert ev.certified
+    assert not ev.metadata.get("dialectical_conflict")
+
+
+def test_dialectical_and_all_false(engine):
+    _mk_pred(engine, "deny_a", Truth.FALSE)
+    _mk_pred(engine, "deny_b", Truth.FALSE)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "deny_a"},
+        {"predicate": "deny_b"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_false
+    assert ev.certified
+
+
+def test_dialectical_and_conflict_certified_is_unknown_not_rejection(engine):
+    """La contradicción certificada NO es rechazo (FALSE) ni aprobación
+    (TRUE): es UNKNOWN con la tensión documentada — el nivel superior debe
+    sintetizar (tesis + antítesis → síntesis)."""
+    _mk_pred(engine, "thesis", Truth.TRUE)
+    _mk_pred(engine, "antithesis", Truth.FALSE)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "thesis"},
+        {"predicate": "antithesis"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_unknown, "conflicto certificado debe ser UNKNOWN, no FALSE"
+    assert ev.certified, "la contradicción misma es un hecho certificado"
+    assert ev.metadata.get("dialectical_conflict") is True
+    assert ev.metadata["thesis"][0]["source"] == "thesis"
+    assert ev.metadata["antithesis"][0]["source"] == "antithesis"
+
+
+def test_dialectical_and_conflict_uncertified_is_unknown_uncertified(engine):
+    """Conflicto donde un hijo NO está certificado → UNKNOWN no certificado
+    (falta de evidencia, no tensión establecida)."""
+    _mk_pred(engine, "thesis_c", Truth.TRUE)
+    @engine.register("opinion_c")
+    def opinion_c(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=False)  # opinión sin evidencia
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "thesis_c"},
+        {"predicate": "opinion_c"},
+    ]}
+    ev = engine.evaluate(tree)
+    assert ev.is_unknown
+    assert not ev.certified
+
+
+def test_dialectical_and_conflict_diagnose_points_to_conflict_not_child(engine):
+    """El diagnóstico de un conflicto certificado NO señala hijos culpables
+    (sería tomar partido); la contradicción es el estado a sintetizar."""
+    _mk_pred(engine, "thesis_d", Truth.TRUE)
+    _mk_pred(engine, "antithesis_d", Truth.FALSE)
+    tree = {"op": "DIALECTICAL_AND", "children": [
+        {"predicate": "thesis_d"},
+        {"predicate": "antithesis_d"},
+    ]}
+    ev = engine.evaluate(tree)
+    traces = engine.diagnose(tree)
+    assert ev.certified
+    assert traces == [], "conflicto certificado no es fallo de certificación"
