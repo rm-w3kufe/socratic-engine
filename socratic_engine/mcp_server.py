@@ -145,7 +145,7 @@ class SocraticMCP:
             return {"jsonrpc": "2.0", "id": req_id, "result": {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "socratic-engine", "version": "0.2.0"},
+                "serverInfo": {"name": "socratic-engine", "version": "0.2.1"},
             }}
         if method == "notifications/initialized":
             return None  # no response to notifications

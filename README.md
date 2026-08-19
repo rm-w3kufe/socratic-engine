@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** early / exploratory — the core engine, VSL tree parser, CLI, MCP bridge, and test suite are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.0 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage), benchmarks, and a 45-test suite are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -59,6 +59,7 @@ At its core, the engine evaluates trees composed of:
 - `NOT`
 - `XOR`
 - `IMPLIES`
+- `DIALECTICAL_AND`
 - registered predicates
 - boolean literals
 
@@ -395,6 +396,7 @@ The engine implements:
 | `NOT` | invert one proposition | child must be certified |
 | `XOR` | exactly one true branch | children must be certified |
 | `IMPLIES` | antecedent → consequent | antecedent and consequent must be certified when relevant |
+| `DIALECTICAL_AND` | contradiction is not rejection — a certified TRUE/FALSE conflict yields `UNKNOWN` (certified), with thesis/antithesis in metadata | in conflict: all children certified (the contradiction itself is a fact); without conflict: all children certified |
 
 The distinction matters for diagnosis.
 
@@ -578,7 +580,7 @@ The model is therefore not trusted to produce executable logic merely because th
 
 ## Built-in predicates
 
-The engine currently ships with deterministic predicates for structural classification:
+The engine currently ships with deterministic predicates for structural classification and pragmatic behaviour:
 
 | Predicate | Question | Missing subject |
 |---|---|---|
@@ -588,8 +590,13 @@ The engine currently ships with deterministic predicates for structural classifi
 | `type_has` | does TYPE contain a token? | `UNKNOWN` |
 | `doc_has_status` | does a document declare a status? | evaluated from document |
 | `ctx_has` | does context contain a key/value? | `UNKNOWN` |
+| `trend_up` | is a time series growing sustainably (min_delta, noise guard)? | `UNKNOWN` |
+| `trend_down` | is a time series falling sustainably (min_delta, noise guard)? | `UNKNOWN` |
+| `feedback_loop` | does a topology have a closed cycle (length ≥ 2) through target? | `UNKNOWN` |
 
 Registering custom predicates is the intended extension point.
+
+Costly predicates can be wrapped with `@cached(ttl=...)` — hits are marked `metadata.cached=True` (historical evidence, not a fresh measurement), `UNKNOWN` is never cached, and `engine.cache.clear()` forces re-verification.
 
 ---
 
@@ -619,6 +626,8 @@ The current bridge exposes:
 
 The MCP layer is intentionally thin.
 
+It includes a per-tool sliding-window rate limiter (`SOCRATIC_MCP_RATE_LIMIT`, default 100 calls / `SOCRATIC_MCP_RATE_WINDOW`, default 60s): a rate-limited call returns error `-32029` with `retry_after_s` — a transient signal, not a rejection.
+
 The reasoning contract remains in the engine.
 
 ---
@@ -646,7 +655,17 @@ This makes the same engine usable from:
 
 ## Install
 
-> **Note:** the package is not published to PyPI yet. Install from source for now.
+### From PyPI (v0.2.0)
+
+```bash
+pip install socratic-engine
+```
+
+### With MCP support
+
+```bash
+pip install "socratic-engine[mcp]"
+```
 
 ### From source
 
@@ -658,12 +677,6 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
 
-### With MCP support
-
-```bash
-.venv/bin/python -m pip install -e ".[mcp]"
-```
-
 ### Run the tests
 
 ```bash
@@ -673,8 +686,11 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-16 passed
+45 passed
 ```
+
+(includes integration tests with `state-canon`, available when that
+package is installed or reachable at `~/state-canon-mcp`)
 
 ---
 
@@ -685,18 +701,23 @@ socratic-engine/
 ├── README.md
 ├── ROADMAP.md
 ├── pyproject.toml
-├── examples/
-│   └── quickstart.py
+├── LICENSE
+├── benchmarks/
+│   └── benchmark.py        # deep/wide trees, cache speedup, diagnose
 ├── docs/
-│   └── ONTOLOGY.md
+│   ├── ONTOLOGY.md         # epistemic model
+│   ├── ARCHITECTURE.md     # how it fits together (code-faithful)
+│   └── EXAMPLES.md         # executable use cases
 ├── socratic_engine/
 │   ├── __init__.py
-│   ├── engine.py          # trivalent evaluator + certification + diagnosis
-│   ├── tree.py            # builder + VSL parser + tree routing
-│   ├── cli.py             # command-line interface
-│   └── mcp_server.py      # MCP / JSON-RPC bridge
+│   ├── engine.py           # trivalent evaluator + certification + diagnosis
+│   ├── tree.py             # builder + VSL parser + tree routing
+│   ├── cli.py              # command-line interface
+│   └── mcp_server.py       # MCP / JSON-RPC bridge + rate limiter
 └── tests/
-    └── test_engine.py
+    ├── test_engine.py
+    ├── test_mcp_server.py
+    └── test_state_canon_integration.py
 ```
 
 ---
@@ -890,14 +911,16 @@ Its purpose is narrower:
 
 ### v0.2.x — maturation
 
-- [ ] CI workflow
-- [ ] coverage reporting
-- [ ] integration tests with `state-canon`
-- [ ] performance benchmarks
-- [ ] richer examples and architecture documentation
-- [ ] dialectical operator for legitimate contradictions
-- [ ] temporal / pragmatic predicates
-- [ ] caching and rate limiting for expensive predicates
+- [x] CI workflow (pytest 3.10–3.12 + coverage + CLI smoke + MCP job)
+- [ ] coverage > 90% (currently ~67%; CI gates at 50%)
+- [x] integration tests with `state-canon`
+- [x] performance benchmarks
+- [x] richer examples and architecture documentation
+- [x] dialectical operator for legitimate contradictions
+- [x] temporal / pragmatic predicates
+- [x] caching and rate limiting for expensive predicates
+- [x] published on PyPI (v0.2.0)
+- [ ] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
 
 ### v0.3.x — formal extension
 
@@ -913,8 +936,10 @@ The roadmap is intentionally open: the next features should be driven by failure
 ## Going deeper
 
 - **[docs/ONTOLOGY.md](./docs/ONTOLOGY.md)** — the epistemic model: truth, certification, UNKNOWN, operator semantics, and the LLM boundary.
-- **[ROADMAP.md](./ROADMAP.md)** — current development programme.
-- **[examples/quickstart.py](./examples/quickstart.py)** — three concrete cases: certified evidence, uncertified LLM judgment, and inverse diagnosis.
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — how the modules fit together, written against the code.
+- **[docs/EXAMPLES.md](./docs/EXAMPLES.md)** — executable use cases: classification, deploy gates, diagnosis, dialectics, caching, rate limiting.
+- **[ROADMAP.md](./ROADMAP.md)** — current development programme (tracked as [issue #1](https://github.com/rm-w3kufe/socratic-engine/issues/1)).
+- **[benchmarks/benchmark.py](./benchmarks/benchmark.py)** — performance numbers (deep/wide trees, cache speedup, diagnose).
 - **[tests/](./tests/)** — executable specification of the current semantics.
 
 ---
