@@ -786,6 +786,12 @@ The workflow FAILS loudly (it does not publish) if:
 - the wheel metadata contains anything other than Apache-2.0
   (guard against the MIT-classifier regression that hit 0.2.2)
 
+Validated end-to-end 2026-08-19 (tag `v0.2.3` test run):
+sync guard ✓ → suite ✓ → build ✓ → metadata guard ✓ → publish reached
+PyPI with the token authenticated (server answered `400 File already
+exists` for the intentionally-republished version — a bad token would
+have answered 401/403, not 400).
+
 ---
 
 ## Repository layout
