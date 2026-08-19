@@ -300,3 +300,60 @@ def test_dialectical_and_conflict_diagnose_points_to_conflict_not_child(engine):
     traces = engine.diagnose(tree)
     assert ev.certified
     assert traces == [], "conflicto certificado no es fallo de certificación"
+
+
+# ── PREDICADOS PRAGMÁTICOS (v0.2.0): tendencias + feedback loops ──
+
+def test_trend_up_monotonic(engine):
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 2, 3, 4]]})
+    assert ev.is_true and ev.certified
+
+
+def test_trend_up_noise_drop_is_false(engine):
+    # sube 1→4 pero cae a 0 (rango 4, caída 4 > 4/3) → ruido, no tendencia
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 2, 3, 4, 0]]})
+    assert ev.is_false and ev.certified
+
+
+def test_trend_up_insufficient_is_unknown(engine):
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_up_non_numeric_is_unknown(engine):
+    ev = engine.evaluate({"predicate": "trend_up", "args": [["a", "b"]]})
+    assert ev.is_unknown and not ev.certified
+
+
+def test_trend_up_min_delta_respected(engine):
+    # 1→2 sube 1, pero min_delta=5 → FALSE certificado
+    ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 2], 5]})
+    assert ev.is_false and ev.certified
+
+
+def test_trend_down_monotonic(engine):
+    ev = engine.evaluate({"predicate": "trend_down", "args": [[5, 4, 3, 2]]})
+    assert ev.is_true and ev.certified
+
+
+def test_feedback_loop_detected(engine):
+    topo = {"A": ["B"], "B": ["C"], "C": ["A"]}
+    ev = engine.evaluate({"predicate": "feedback_loop", "args": [topo, "A"]})
+    assert ev.is_true and ev.certified
+
+
+def test_feedback_loop_absent(engine):
+    topo = {"A": ["B"], "B": ["C"], "C": []}
+    ev = engine.evaluate({"predicate": "feedback_loop", "args": [topo, "A"]})
+    assert ev.is_false and ev.certified
+
+
+def test_feedback_loop_self_loop_not_counted(engine):
+    topo = {"A": ["A"], "B": []}
+    ev = engine.evaluate({"predicate": "feedback_loop", "args": [topo, "A"]})
+    assert ev.is_false and ev.certified
+
+
+def test_feedback_loop_invalid_topology_is_unknown(engine):
+    ev = engine.evaluate({"predicate": "feedback_loop", "args": [["not", "a", "dict"], "A"]})
+    assert ev.is_unknown and not ev.certified

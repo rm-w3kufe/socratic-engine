@@ -232,3 +232,41 @@ The upper level receives a **certified UNKNOWN** with the full tension:
 "evidence in conflict", not "no evidence". It must synthesize (e.g.
 escalate to a human, or probe a third source) — it cannot silently pick
 a side.
+
+---
+
+## 7. Pragmatic predicates — trends and feedback loops (v0.2.0)
+
+The engine now ships predicates that ask *behavioral* questions, not
+just static document questions.
+
+**Tendencia:** una serie que crece pero con una caída brusca es ruido, no tendencia.
+
+```python
+from socratic_engine import SocraticEngine
+
+engine = SocraticEngine()
+
+ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 2, 3, 4]]})
+print(ev.truth.name, ev.certified)          # TRUE True (sostenida)
+
+ev = engine.evaluate({"predicate": "trend_up", "args": [[1, 2, 3, 4, 0]]})
+print(ev.truth.name, ev.certified)          # FALSE True (caída > 1/3 del rango = ruido)
+
+ev = engine.evaluate({"predicate": "trend_up", "args": [[1]]})
+print(ev.truth.name, ev.certified)          # UNKNOWN False (serie insuficiente — R10)
+```
+
+**Feedback loop:** un ciclo en la topología (longitud >= 2) que incluye al nodo objetivo.
+
+```python
+ev = engine.evaluate({"predicate": "feedback_loop",
+                      "args": [{"A": ["B"], "B": ["C"], "C": ["A"]}, "A"]})
+print(ev.truth.name, ev.certified)          # TRUE True — A→B→C→A
+ev = engine.evaluate({"predicate": "feedback_loop",
+                      "args": [{"A": ["A"]}, "A"]})
+print(ev.truth.name, ev.certified)          # FALSE True — self-loop no cuenta
+```
+
+Misma disciplina R10: sin serie/topología válida → UNKNOWN no certificado;
+la evidencia incluye la serie/el ciclo completo (auditable).

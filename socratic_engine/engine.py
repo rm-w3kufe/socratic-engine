@@ -246,6 +246,139 @@ class SocraticEngine:
                 evidence={"ctx": ctx, "key": key}, source="ctx_has",
             )
 
+        # ── PREDICADOS PRAGMÁTICOS (v0.2.0): preguntas sobre comportamiento
+        # temporal y estructural, NO sobre el contenido estático del doc.
+        # Siguen la misma disciplina R10: sin serie/topología no hay juicio
+        # (UNKNOWN), y la evidencia es la serie completa (auditable).
+
+        @self.register("trend_up")
+        def trend_up(series, min_delta: float = 0.0, **kw) -> PredicateResult:
+            """¿La serie temporal está creciendo de forma sostenida? — la
+            primitiva de tendencia. Retorna TRUE si el último punto supera
+            el primero por min_delta y la serie no tiene caídas > 1/3 del
+            rango (tendencia, no ruido). UNKNOWN si la serie es demasiado
+            corta (< 2 puntos) o no numérica — sin datos no hay tendencia."""
+            if not isinstance(series, (list, tuple)) or len(series) < 2:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"series": series, "reason": "insufficient"},
+                    source="trend_up",
+                )
+            try:
+                vals = [float(v) for v in series]
+            except (TypeError, ValueError):
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"series": series, "reason": "non_numeric"},
+                    source="trend_up",
+                )
+            first, last = vals[0], vals[-1]
+            if last - first < min_delta:
+                return PredicateResult(
+                    truth=Truth.FALSE, certified=True,
+                    evidence={"series": vals, "first": first, "last": last},
+                    source="trend_up",
+                )
+            rng = max(vals) - min(vals)
+            # caída > 1/3 del rango entre puntos consecutivos = ruido, no tendencia
+            for a, b in zip(vals, vals[1:]):
+                if b < a - (rng / 3 if rng > 0 else abs(a)):
+                    return PredicateResult(
+                        truth=Truth.FALSE, certified=True,
+                        evidence={"series": vals, "first": first, "last": last,
+                                  "drop": (a, b)},
+                        source="trend_up",
+                    )
+            return PredicateResult(
+                truth=Truth.TRUE, certified=True,
+                evidence={"series": vals, "first": first, "last": last},
+                source="trend_up",
+            )
+
+        @self.register("trend_down")
+        def trend_down(series, min_delta: float = 0.0, **kw) -> PredicateResult:
+            """¿La serie temporal está cayendo de forma sostenida? — la
+            primitiva de decremento (espejo de trend_up, con los mismos
+            criterios de ruido)."""
+            if not isinstance(series, (list, tuple)) or len(series) < 2:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"series": series, "reason": "insufficient"},
+                    source="trend_down",
+                )
+            try:
+                vals = [float(v) for v in series]
+            except (TypeError, ValueError):
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"series": series, "reason": "non_numeric"},
+                    source="trend_down",
+                )
+            first, last = vals[0], vals[-1]
+            if first - last < min_delta:
+                return PredicateResult(
+                    truth=Truth.FALSE, certified=True,
+                    evidence={"series": vals, "first": first, "last": last},
+                    source="trend_down",
+                )
+            rng = max(vals) - min(vals)
+            for a, b in zip(vals, vals[1:]):
+                if b > a + (rng / 3 if rng > 0 else abs(a)):
+                    return PredicateResult(
+                        truth=Truth.FALSE, certified=True,
+                        evidence={"series": vals, "first": first, "last": last,
+                                  "rise": (a, b)},
+                        source="trend_down",
+                    )
+            return PredicateResult(
+                truth=Truth.TRUE, certified=True,
+                evidence={"series": vals, "first": first, "last": last},
+                source="trend_down",
+            )
+
+        @self.register("feedback_loop")
+        def feedback_loop(topology, target: str, **kw) -> PredicateResult:
+            """¿Hay un ciclo de retroalimentación en la topología que incluye
+            al nodo objetivo? — la primitiva estructural de loops. La
+            topología es un dict {nodo: [vecinos]}; retorna TRUE si existe un
+            camino cerrado (de target a target) de longitud >= 2. UNKNOWN si
+            la topología es inválida o el target no está presente."""
+            if not isinstance(topology, dict) or not isinstance(target, str) or target not in topology:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"topology": topology, "target": target,
+                              "reason": "invalid_or_absent"},
+                    source="feedback_loop",
+                )
+            adj = {k: (list(v) if isinstance(v, (list, tuple, set)) else [])
+                   for k, v in topology.items()}
+            # BFS desde target buscando volver a target (longitud >= 2)
+            from collections import deque
+            seen_paths = set()
+            dq = deque()
+            for nxt in adj.get(target, []):
+                if nxt == target:
+                    continue  # self-loop de longitud 1 no cuenta
+                dq.append((nxt, (target, nxt)))
+            while dq:
+                node, path = dq.popleft()
+                if node == target:
+                    return PredicateResult(
+                        truth=Truth.TRUE, certified=True,
+                        evidence={"cycle": list(path), "target": target},
+                        source="feedback_loop",
+                    )
+                for nxt in adj.get(node, []):
+                    if (node, nxt) in seen_paths:
+                        continue
+                    seen_paths.add((node, nxt))
+                    dq.append((nxt, path + (nxt,)))
+            return PredicateResult(
+                truth=Truth.FALSE, certified=True,
+                evidence={"target": target, "no_cycle": True},
+                source="feedback_loop",
+            )
+
     # --------------------------------------------------------
     # Evaluación recursiva principal
     # --------------------------------------------------------

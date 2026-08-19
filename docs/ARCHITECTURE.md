@@ -109,6 +109,9 @@ Built-in predicates (in `engine.py`):
 | `type_has` | document type contains a token |
 | `doc_has_status` | document has a status field |
 | `ctx_has` | context has a key (with optional value) |
+| `trend_up` | time series is growing sustainably (min_delta, noise guard) |
+| `trend_down` | time series is falling sustainably (min_delta, noise guard) |
+| `feedback_loop` | topology has a closed cycle (length >= 2) through target |
 
 New predicates are registered with `engine.register(name)` — the
 mechanism used by the CLI to inject domain-specific ones.
