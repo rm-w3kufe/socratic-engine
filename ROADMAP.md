@@ -1,4 +1,4 @@
-# Roadmap to v0.2.0
+# Roadmap — v0.1.0 → v0.2.x (completado) → v0.3.0
 
 ## ✅ Completado en v0.1.0
 - [x] Motor trivaluado (TRUE/FALSE/UNKNOWN)
@@ -20,8 +20,8 @@
 - [x] docs/EXAMPLES.md (casos de uso reales)
 
 ### Tests y Calidad
-- [x] GitHub Actions CI (pytest en cada push)
-- [ ] Coverage report (objetivo: >90%) — CI reporta coverage, umbral actual 50% (gate del 90% cuando la suite cubra más)
+- [x] GitHub Actions CI (pytest en cada push, 3.10/3.11/3.12 + MCP job)
+- [x] Coverage report (objetivo: >90%) — **100% real (189 tests)**, CI gate `--cov-fail-under=90` desde 1e1a893; cobertura verificada en cada push (4 jobs green)
 - [x] Tests de integración con state-canon (tests/test_state_canon_integration.py: JsonStateProvider + DIALECTICAL_AND detecta drift declarado/observado)
 - [x] Benchmarks de performance (benchmarks/benchmark.py: deep/wide trees,
       cache speedup ~43x en 1ms I/O, diagnose; stdlib only)
@@ -37,6 +37,13 @@
 - [x] Bridge oficial con state-canon-mcp (socratic_engine/bridge_statecanon.py: predicados canon_query/canon_matches/canon_field_equals/canon_drift — evidencia certificada desde el provider; MCP opt-in vía provider=; tests dedicados 100% cobertura)
 - [x] Ejemplo end-to-end con Claude Code (examples/claude-code-end-to-end.md: .mcp.json + wrapper con bridge; **verificación en vivo PENDIENTE** — VERIFY-E2E-CLAUDE-CODE, requiere tokens Anthropic; contrato MCP verificado sin LLM en examples/mcp-contract-check.sh)
 - [x] Ejemplo end-to-end con OpenCode (examples/opencode-end-to-end.md: config MCP + wrapper bridge + escenario declared/observed; contrato MCP verificado)
+
+### Pendiente de estabilización (verificado 2026-08-19)
+- [ ] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db) NO están
+      en PyPI 0.2.1 (publicado antes). Verificado: instalación limpia 0.2.1 en venv
+      /tmp no tiene `socratic_engine.bridge_statecanon`. Sync version en 3 lugares:
+      pyproject.toml + `__init__.py __version__` + `mcp_server.py` serverInfo.
+- [ ] VERIFY-E2E-CLAUDE-CODE — verificación en vivo del ejemplo Claude Code (requiere tokens Anthropic)
 
 ## 🚀 Objetivo v0.3.0: Extensión Formal
 - [ ] Lógica paraconsistente (contradicciones certificadas)
