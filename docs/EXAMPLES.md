@@ -304,3 +304,35 @@ Semantics:
 
 The cache is an optimization, never a substitute for verification:
 certification is still decided by the original predicate.
+
+---
+
+## 9. Rate limiting in the MCP server (v0.2.0)
+
+Protect the stdio MCP server against saturation:
+
+```bash
+export SOCRATIC_MCP_RATE_LIMIT=50    # max 50 calls per window
+export SOCRATIC_MCP_RATE_WINDOW=60   # per 60s
+socratic-engine-mcp
+```
+
+A tool call beyond the limit returns error `-32029`:
+
+```json
+{"error": {"code": -32029,
+           "message": "Rate limit exceeded for tool 'socratic_evaluate'",
+           "data": {"retry_after_s": 12.34}}}
+```
+
+Semantics: the error is **transient, not a rejection** — the client
+should back off and retry after `retry_after_s`. Per-tool counting means
+`diagnose` is not starved by `evaluate` traffic. The `RateLimiter` class
+is usable standalone:
+
+```python
+from socratic_engine.mcp_server import RateLimiter
+
+rl = RateLimiter(limit=10, window=60)
+ok, retry_after = rl.allow("socratic_evaluate")
+```

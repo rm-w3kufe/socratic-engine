@@ -211,6 +211,17 @@ original predicate.
 Runs as `socratic-engine-mcp`. The `mcp` extra (`mcp>=1.0`) is
 optional — core engine has zero dependencies.
 
+### Rate limiting (v0.2.0)
+
+Sliding-window limiter per tool, configurable via env (no deps):
+
+- `SOCRATIC_MCP_RATE_LIMIT` — max calls per window (default 100)
+- `SOCRATIC_MCP_RATE_WINDOW` — window seconds (default 60)
+
+A rate-limited call returns error `-32029` with
+`data.retry_after_s` — a transient signal, not a rejection: the client
+should back off and retry. `RateLimiter` is also usable standalone.
+
 ## Failure diagnosis
 
 `evaluate()` is paired with `diagnose()`:

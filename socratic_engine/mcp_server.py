@@ -18,13 +18,63 @@ Run:
 from __future__ import annotations
 
 import json
+import os
 import sys
-from typing import Any
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from .engine import SocraticEngine, Truth
 from .tree import SocraticTreeBuilder, parse_socratic_block
 
 PROTOCOL_VERSION = "2024-11-05"
+
+RATE_LIMIT_ERROR_CODE = -32029  # server error: rate limit exceeded
+
+
+class RateLimiter:
+    """Rate limiter por método (sliding window) para el MCP server (v0.2.0).
+
+    Configurable por entorno (sin deps):
+      SOCRATIC_MCP_RATE_LIMIT   → máx. llamadas por ventana (default 100)
+      SOCRATIC_MCP_RATE_WINDOW  → ventana en segundos (default 60)
+
+    Epistemología: un rate limit no es un rechazo al cliente — es una
+    señal de que el canal está saturado; el cliente debe volver a
+    intentar (backoff), no abandonar.
+    """
+
+    def __init__(self, limit: Optional[int] = None, window: float = 60.0):
+        try:
+            self.limit = int(limit if limit is not None
+                             else os.environ.get("SOCRATIC_MCP_RATE_LIMIT", "100"))
+        except ValueError:
+            self.limit = 100
+        try:
+            self.window = float(window if window != 60.0
+                                else os.environ.get("SOCRATIC_MCP_RATE_WINDOW", "60"))
+        except ValueError:
+            self.window = 60.0
+        self._timestamps: Dict[str, List[float]] = {}  # method → recent call times
+
+    def allow(self, method: str) -> Tuple[bool, Optional[float]]:
+        """¿Permitir la llamada? Retorna (True, None) o (False, retry_after_s)."""
+        now = time.monotonic()
+        times = [t for t in self._timestamps.get(method, [])
+                 if now - t < self.window]
+        if len(times) >= self.limit:
+            oldest = times[0] if times else now
+            retry_after = max(0.0, oldest + self.window - now)
+            self._timestamps[method] = times
+            return False, retry_after
+        times.append(now)
+        self._timestamps[method] = times
+        return True, None
+
+    def reset(self, method: Optional[str] = None):
+        if method:
+            self._timestamps.pop(method, None)
+        else:
+            self._timestamps.clear()
 
 
 class SocraticMCP:
@@ -33,6 +83,7 @@ class SocraticMCP:
     def __init__(self) -> None:
         self.engine = SocraticEngine()
         self.builder = SocraticTreeBuilder(self.engine)
+        self.rate_limiter = RateLimiter()
 
     # ── tools ──
 
@@ -113,6 +164,16 @@ class SocraticMCP:
             params = req.get("params", {})
             name = params.get("name", "")
             args = params.get("arguments", {})
+            # Rate limit por herramienta (sliding window). El error es un
+            # estado transitorio: retry_after indica al cliente cuándo
+            # reintentar (backoff), no es un rechazo definitivo.
+            allowed, retry_after = self.rate_limiter.allow(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": req_id,
+                        "error": {"code": RATE_LIMIT_ERROR_CODE,
+                                  "message": f"Rate limit exceeded for tool "
+                                             f"'{name}'",
+                                  "data": {"retry_after_s": round(retry_after, 3)}}}
             try:
                 if name == "socratic_evaluate":
                     result = self.socratic_evaluate(args.get("tree"), args.get("context"))

@@ -27,7 +27,7 @@
 - [x] Operador dialéctico (DIALECTICAL_AND para contradicciones legítimas)
 - [x] Predicados pragmáticos (feedback loops, tendencias temporales)
 - [x] Cache TTL para predicados costosos
-- [ ] Rate limiting en MCP server
+- [x] Rate limiting en MCP server
 
 ### Ecosistema
 - [ ] Publicar en PyPI (pip install socratic-engine) — pendiente: sin acceso al registry
