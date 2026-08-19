@@ -11,6 +11,8 @@
 
 ## 🎯 Objetivo v0.2.0: Maduración y Documentación
 
+> Issue de seguimiento: https://github.com/rm-w3kufe/socratic-engine/issues/1
+
 ### Documentación
 - [x] README con visión completa (The Problem + Philosophy)
 - [x] docs/ONTOLOGY.md (ontología epistémica)
