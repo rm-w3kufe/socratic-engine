@@ -95,7 +95,7 @@ def test_mcp_initialize():
     s = SocraticMCP()
     r = s.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
     assert r["result"]["protocolVersion"] == "2024-11-05"
-    assert r["result"]["serverInfo"]["version"] == "0.2.2"
+    assert r["result"]["serverInfo"]["version"] == "0.2.3"
 
 
 def test_mcp_initialized_notification_no_response():

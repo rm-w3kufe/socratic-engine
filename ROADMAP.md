@@ -41,9 +41,12 @@
 ### Pendiente de estabilización (verificado 2026-08-19)
 - [x] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db)
       NO estaban en PyPI 0.2.1 (publicado antes). Verificado: instalación limpia
-      0.2.1 en venv /tmp no tenía `socratic_engine.bridge_statecanon`. 0.2.2
+      0.2.1 en venv /tmp no tenía `socratic_engine.bridge_statecanon`. 0.2.3
       sincronizado en 4 lugares: pyproject.toml + `__init__.py __version__` +
       `mcp_server.py` serverInfo + `tests/test_mcp_server.py` assert.
+      **PUBLICADO 2026-08-19** https://pypi.org/project/socratic-engine/0.2.3/
+      (0.2.2 corregido → 0.2.3: classifier MIT residual eliminado del metadata;
+      verificado: License: Apache-2.0 + Classifier Apache Software License only)
 - [ ] VERIFY-E2E-CLAUDE-CODE — verificación en vivo del ejemplo Claude Code (requiere tokens Anthropic)
 
 ## 🚀 Objetivo v0.3.0: Extensión Formal

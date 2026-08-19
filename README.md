@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.2 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, a 189-test suite at 100% statement coverage, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, a 189-test suite at 100% statement coverage, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -710,7 +710,7 @@ This makes the same engine usable from:
 
 ## Install
 
-### From PyPI (v0.2.2)
+### From PyPI (v0.2.3)
 
 ```bash
 pip install socratic-engine
@@ -750,6 +750,41 @@ inline in the source).
 
 (includes integration tests with `state-canon`, available when that
 package is installed or reachable at `~/state-canon-mcp`)
+
+### Releases (GitHub ↔ PyPI sync)
+
+The release pipeline is automated via GitHub Actions
+([`.github/workflows/release.yml`](./.github/workflows/release.yml)),
+triggered by a tag. To ship a new version:
+
+```bash
+# 1. Bump the version in ALL four places (must match exactly):
+#    pyproject.toml  → version = "X.Y.Z"
+#    socratic_engine/__init__.py → __version__ = "X.Y.Z"
+#    socratic_engine/mcp_server.py → serverInfo version
+#    tests/test_mcp_server.py → the assert string
+# 2. Update README status + ROADMAP, commit, push to main
+git commit -am "release: vX.Y.Z — <what changed>"
+git push origin main
+
+# 3. Tag and push — the workflow verifies tag ↔ pyproject ↔ __init__
+#    match, runs the full suite, checks metadata (Apache-2.0 only),
+#    publishes to PyPI, and creates the GitHub Release.
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Prerequisites (one-time):
+- `PYPI_TOKEN` secret configured in
+  **GitHub → Settings → Secrets and variables → Actions**
+  (token from https://pypi.org/manage/account/token/)
+- workflow permissions: `contents: write` (set in the workflow file)
+
+The workflow FAILS loudly (it does not publish) if:
+- the tag version ≠ pyproject version ≠ `__init__.__version__`
+- the test suite or coverage gate fails
+- the wheel metadata contains anything other than Apache-2.0
+  (guard against the MIT-classifier regression that hit 0.2.2)
 
 ---
 
@@ -981,7 +1016,7 @@ Its purpose is narrower:
 - [x] dialectical operator for legitimate contradictions
 - [x] temporal / pragmatic predicates
 - [x] caching and rate limiting for expensive predicates
-- [x] published on PyPI (v0.2.0 → v0.2.2; bridge + ejemplos incluidos desde 0.2.2)
+- [x] published on PyPI (v0.2.0 → v0.2.3; bridge + ejemplos desde 0.2.2; license metadata Apache-only desde 0.2.3)
 - [x] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
 
 ### v0.3.x — formal extension

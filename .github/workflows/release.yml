@@ -1,0 +1,85 @@
+name: Release
+
+# Sincronización GitHub ↔ PyPI:
+#   - Disparado por tags v* (git tag v0.2.4 && git push --tags)
+#   - Construye el paquete, publica a PyPI (secret PYPI_TOKEN), crea GitHub Release
+#   - Los secrets se configuran UNA vez en Settings → Secrets and variables → Actions:
+#     PYPI_TOKEN = token de https://pypi.org/manage/account/token/
+#
+# Verificación de sincronía (model≡reality, R4): el job verifica que la versión
+# del pyproject.toml coincide con el tag antes de publicar — un tag sin bump de
+# versión FALLA en vez de publicar un duplicado.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build + publish + GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag ↔ pyproject version sync
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag=$TAG  pyproject=$PKG_VERSION"
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "❌ tag v$TAG != pyproject $PKG_VERSION — bump pyproject.toml primero"
+            exit 1
+          fi
+          # __init__ y serverInfo deben coincidir también (4-lugar sync)
+          INIT_VERSION=$(python -c "import ast; t=ast.parse(open('socratic_engine/__init__.py').read()); print([n.value.value for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0],'id','')=='__version__'][0])")
+          echo "init=$INIT_VERSION"
+          if [ "$INIT_VERSION" != "$PKG_VERSION" ]; then
+            echo "❌ __init__ $INIT_VERSION != pyproject $PKG_VERSION"
+            exit 1
+          fi
+          echo "✓ tag, pyproject, __init__ sincronizados ($PKG_VERSION)"
+
+      - name: Run full test suite before release
+        run: |
+          pip install -e ".[dev]"
+          pip install pytest-cov build
+          python -m pytest tests/ -q --cov=socratic_engine --cov-report=term-missing --cov-fail-under=90
+
+      - name: Build package
+        run: python -m build
+
+      - name: Verify wheel metadata (license sanity — MIT regression guard)
+        run: |
+          WHEEL=$(ls dist/*.whl)
+          python - <<'EOF'
+          import zipfile, sys
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              meta = z.read([n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]).decode()
+          assert "License: Apache-2.0" in meta, meta
+          assert "MIT License" not in meta, "MIT residual en metadata — revisar pyproject classifiers"
+          print("✓ metadata: Apache-2.0 only")
+          EOF "$WHEEL"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: socratic-engine ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }} — publicado en PyPI.
+            Verificado por el workflow: tag↔pyproject↔__init__ sync, suite completa,
+            metadata Apache-2.0-only (guard MIT residual).
+          files: dist/*
+          generate_release_notes: true
