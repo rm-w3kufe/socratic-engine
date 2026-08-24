@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-# VSM header pattern: \u00a6 name | id | version | date \u00a6
+# VSM header pattern: ⟦ name | id | version | date ⟧
+# Matches ⟦/⟧ (U+27E6/U+27E7) and ¦ (U+00A6) for backward compatibility
 VSM_HEADER_RE = re.compile(
-    r"\u00a6\s*"
+    r"[\u27e6\u00a6]\s*"
     r"(?P<name>[^|]+?)\s*\|\s*"
     r"(?P<id>[^|]+?)\s*\|\s*"
     r"vsm-(?P<version>[^|]+?)\s*\|\s*"
-    r"(?P<date>[^\u00a6]+?)\s*\u00a6"
+    r"(?P<date>[^\u27e6\u27e7\u00a6]+?)\s*[\u27e7\u00a6]"
 )
 
 # @status pattern
