@@ -210,11 +210,11 @@ class SocraticMCP:
 
     # ── tools ──
 
-    def socratic_evaluate(self, tree: Any, context: dict | None = None) -> dict:
+    def socratic_evaluate(self, tree: Any, context: Any = None) -> dict:
         """Evaluate a socratic tree against a context. tree: dict (JSON) or
         str (VSL socratic(...) block or JSON text). Returns the decision."""
         parsed = self._resolve_tree(tree)
-        ctx = context or {}
+        ctx = self._resolve_context(context)
         ev = self.engine.evaluate(parsed, ctx)
         return {
             "truth": ev.truth.name,
@@ -225,10 +225,10 @@ class SocraticMCP:
             "diagnose": [str(t) for t in self.engine.diagnose(parsed, ctx)],
         }
 
-    def socratic_diagnose(self, tree: Any, context: dict | None = None) -> list:
+    def socratic_diagnose(self, tree: Any, context: Any = None) -> list:
         """Inverse trace: only the nodes that caused certification failure."""
         parsed = self._resolve_tree(tree)
-        return [str(t) for t in self.engine.diagnose(parsed, context or {})]
+        return [str(t) for t in self.engine.diagnose(parsed, self._resolve_context(context))]
 
     def socratic_build(self, tree: Any) -> dict:
         """Validate a proposed tree (LLM proposal). R10.1: the engine
@@ -254,6 +254,19 @@ class SocraticMCP:
         if isinstance(tree, dict):
             return tree
         raise TypeError(f"tree must be dict or str, got {type(tree).__name__}")
+
+    def _resolve_context(self, context: Any) -> dict:
+        """Parse context from JSON string or pass through dict."""
+        if context is None:
+            return {}
+        if isinstance(context, str):
+            try:
+                return json.loads(context)
+            except json.JSONDecodeError:
+                return {}
+        if isinstance(context, dict):
+            return context
+        return {}
 
     def _tree_home(self, tree: dict, ctx: dict) -> str | None:
         from .tree import tree_home
