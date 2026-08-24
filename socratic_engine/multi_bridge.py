@@ -454,10 +454,18 @@ class MultiBridge:
                 }
             )
 
+        # Truth reflects reality: UNKNOWN if any provider is unhealthy
+        unhealthy = [p for p in providers if not p["health"]["healthy"]]
+        truth = Truth.UNKNOWN if unhealthy else Truth.TRUE
+
         return PredicateResult(
-            truth=Truth.TRUE,
-            certified=True,
-            evidence={"providers": providers, "total": len(providers)},
+            truth=truth,
+            certified=len(unhealthy) == 0,
+            evidence={
+                "providers": providers,
+                "total": len(providers),
+                "unhealthy_count": len(unhealthy),
+            },
             source="canon_providers",
         )
 

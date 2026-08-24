@@ -290,7 +290,9 @@ class SocraticMCP:
         if method == "tools/call":
             params = req.get("params", {})
             name = params.get("name", "")
-            args = params.get("arguments", {})
+            args = params.get("arguments") or {}
+            if not isinstance(args, dict):
+                args = {}
             # Rate limit por herramienta (sliding window). El error es un
             # estado transitorio: retry_after indica al cliente cuándo
             # reintentar (backoff), no es un rechazo definitivo.
