@@ -37,6 +37,12 @@
 - [x] Bridge oficial con state-canon-mcp (socratic_engine/bridge_statecanon.py: predicados canon_query/canon_matches/canon_field_equals/canon_drift — evidencia certificada desde el provider; MCP opt-in vía provider=; tests dedicados 100% cobertura)
 - [x] Ejemplo end-to-end con Claude Code (examples/claude-code-end-to-end.md: .mcp.json + wrapper con bridge; **verificación en vivo PENDIENTE** — VERIFY-E2E-CLAUDE-CODE, requiere tokens Anthropic; contrato MCP verificado sin LLM en examples/mcp-contract-check.sh)
 - [x] Ejemplo end-to-end con OpenCode (examples/opencode-end-to-end.md: config MCP + wrapper bridge + escenario declared/observed; contrato MCP verificado)
+- [x] **Multi-bridge** (feat/multi-bridge): routing de predicados canon_* a múltiples providers por dominio
+  - MultiBridge class: routing domain→provider, 6 predicados (4 existentes + canon_domains + canon_providers)
+  - VsmDocProvider: parsea headers VSM del filesystem, expone como records consultables
+  - SocraticMCP: acepta bridge_config o multi_bridge (backward compatible)
+  - Config-driven: bridge_config.json con lazy loading de providers
+  - 382 tests (46 nuevos), 0 regresiones
 
 ### Pendiente de estabilización (verificado 2026-08-19)
 - [x] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db)

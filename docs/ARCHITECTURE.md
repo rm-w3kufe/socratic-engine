@@ -15,6 +15,9 @@ four modules:
 | `socratic_engine/tree.py` | Parsing + tree building: `SocraticTreeBuilder`, `parse_socratic_block()`, `tree_home()` |
 | `socratic_engine/cli.py` | External contract: `socratic-engine eval-tree <tree> [--context JSON] [--doc-type T]` + `selftest` |
 | `socratic_engine/mcp_server.py` | MCP bridge: `socratic_evaluate`, `socratic_diagnose`, `socratic_build` |
+| `socratic_engine/multi_bridge.py` | Multi-provider routing: `MultiBridge`, domain-based canon_* dispatch |
+| `socratic_engine/bridge_statecanon.py` | Official state-canon bridge (single provider, opt-in) |
+| `socratic_engine/providers/vsm_doc.py` | VSM documentation filesystem provider |
 
 ```
                 ┌────────────────────────────────────────────┐
