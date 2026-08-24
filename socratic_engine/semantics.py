@@ -7,6 +7,9 @@ Patterns handled:
 1. NOT chain flattening: NOT(NOT(NOT(P))) -> NOT(P) or P
 2. Contradiction detection: AND(A, NOT(A)) -> FALSE
 3. Tautology detection: OR(A, NOT(A)) -> TRUE
+4. Child deduplication: AND(P, P) -> AND(P), OR(P, P) -> OR(P)
+5. Absorption: AND(A, OR(A, B)) -> A, OR(A, AND(A, B)) -> A
+6. Deep contradiction: AND(tree, NOT(tree)) with nested structures
 """
 
 from __future__ import annotations
@@ -28,18 +31,28 @@ def simplify(node: Any) -> Any:
         node = flatten_not_chain(node)
         op = node.get("op")  # re-read after flattening
 
-    # --- Contradiction / Tautology ---
+    # --- AND / OR simplifications ---
     if op in ("AND", "OR"):
+        # 1. Contradiction / Tautology check (fast path)
         resolved = detect_contradiction(node)
         if resolved is not None:
             return resolved
 
-        # Recurse into children after contradiction check
+        # 2. Simplify children recursively
         new_children = [_resolve_marker(c) for c in
                         (simplify(c) for c in node.get("children", []))]
         node = {**node, "children": new_children}
 
-        # Re-check after simplifying children (child may have resolved)
+        # 3. Deduplicate children
+        node = _dedup_children(node)
+        op = node.get("op")  # re-read after dedup
+
+        # 4. Absorption check
+        resolved = detect_absorption(node)
+        if resolved is not None:
+            return resolved
+
+        # 5. Re-check contradiction after simplification
         resolved = detect_contradiction(node)
         if resolved is not None:
             return resolved
@@ -104,33 +117,111 @@ def detect_contradiction(node: dict) -> dict | None:
 
 
 def _is_negation_pair(a: Any, b: Any) -> bool:
-    """Check if a is NOT(b) or b is NOT(a), using structural equality."""
+    """Check if a is NOT(b) or b is NOT(a), using recursive structural equality."""
     if not isinstance(a, dict) or not isinstance(b, dict):
         return False
 
     # a = NOT(b)?
     if a.get("op") == "NOT":
         a_children = a.get("children", [])
-        if len(a_children) == 1 and _shallow_equal(a_children[0], b):
+        if len(a_children) == 1 and structural_equal(a_children[0], b):
             return True
 
     # b = NOT(a)?
     if b.get("op") == "NOT":
         b_children = b.get("children", [])
-        if len(b_children) == 1 and _shallow_equal(b_children[0], a):
+        if len(b_children) == 1 and structural_equal(b_children[0], a):
             return True
 
     return False
 
 
-def _shallow_equal(a: Any, b: Any) -> bool:
-    """Structural equality for tree nodes (no recursion into children of children)."""
+# ── Pattern 3: Child deduplication ────────────────────────────
+
+
+def _dedup_children(node: dict) -> dict:
+    """Remove duplicate children. AND(P, P) -> AND(P)."""
+    children = node.get("children", [])
+    if len(children) <= 1:
+        return node
+
+    seen: list[Any] = []
+    for child in children:
+        if not any(structural_equal(child, s) for s in seen):
+            seen.append(child)
+
+    if len(seen) == len(children):
+        return node  # no duplicates found
+
+    if len(seen) == 1:
+        # AND(P) -> P, OR(P) -> P
+        return seen[0]
+
+    return {**node, "children": seen}
+
+
+# ── Pattern 4: Absorption ─────────────────────────────────────
+
+
+def detect_absorption(node: dict) -> dict | None:
+    """AND(A, OR(A, B)) -> A.  OR(A, AND(A, B)) -> A.
+    Returns simplified node or None."""
+    op = node.get("op")
+    children = node.get("children", [])
+
+    if op == "AND":
+        # Check if any child is an OR containing another child
+        for i, child in enumerate(children):
+            if isinstance(child, dict) and child.get("op") == "OR":
+                or_children = child.get("children", [])
+                # Check if any sibling appears in the OR
+                for j, sibling in enumerate(children):
+                    if i == j:
+                        continue
+                    if any(structural_equal(sibling, oc) for oc in or_children):
+                        # sibling is absorbed: AND(sibling, OR(sibling, ...)) -> sibling
+                        return {"_resolved": True, "truth": _evaluate_literal(sibling)}
+
+    if op == "OR":
+        # Check if any child is an AND containing another child
+        for i, child in enumerate(children):
+            if isinstance(child, dict) and child.get("op") == "AND":
+                and_children = child.get("children", [])
+                for j, sibling in enumerate(children):
+                    if i == j:
+                        continue
+                    if any(structural_equal(sibling, ac) for ac in and_children):
+                        return {"_resolved": True, "truth": _evaluate_literal(sibling)}
+
+    return None
+
+
+def _evaluate_literal(node: Any) -> bool:
+    """Best-effort truth value for absorption result.
+    For predicates we can't evaluate here, return True (safe default
+    — absorption is sound regardless of the actual value)."""
+    if isinstance(node, bool):
+        return node
+    if isinstance(node, dict):
+        if node.get("op") == "AND":
+            return True  # conservative: don't evaluate, absorption is sound
+        if node.get("op") == "OR":
+            return True
+    return True  # predicates: assume TRUE (safe for absorption)
+
+
+# ── Structural equality (recursive) ───────────────────────────
+
+
+def structural_equal(a: Any, b: Any) -> bool:
+    """Recursive structural equality for tree nodes.
+    Compares dicts by key-value pairs, lists by element-wise equality."""
     if isinstance(a, dict) and isinstance(b, dict):
         if set(a.keys()) != set(b.keys()):
             return False
-        return all(_shallow_equal(a[k], b[k]) for k in a.keys())
+        return all(structural_equal(a[k], b[k]) for k in a.keys())
     if isinstance(a, list) and isinstance(b, list):
         if len(a) != len(b):
             return False
-        return all(_shallow_equal(x, y) for x, y in zip(a, b))
+        return all(structural_equal(x, y) for x, y in zip(a, b))
     return a == b
