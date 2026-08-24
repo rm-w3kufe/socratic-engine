@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, a 189-test suite at 100% statement coverage, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K), caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), 382-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -623,7 +623,12 @@ The current bridge exposes:
 | `socratic_build` | validate a proposed reasoning tree |
 | `socratic_evaluate` | execute a tree against context |
 | `socratic_diagnose` | return inverse failure traces |
-| `socratic_canon_query` | (opt-in) query state-canon through the registered bridge |
+| `socratic_canon_query` | (opt-in) query a data source through the registered bridge |
+| `socratic_canon_matches` | (opt-in, multi-bridge) check if records match expected values |
+| `socratic_canon_field_equals` | (opt-in, multi-bridge) check if a field equals expected value |
+| `socratic_canon_drift` | (opt-in, multi-bridge) detect declared vs observed drift |
+| `socratic_canon_domains` | (opt-in, multi-bridge) list all available domains |
+| `socratic_canon_providers` | (opt-in, multi-bridge) list all registered providers |
 
 The MCP layer is intentionally thin.
 
@@ -685,6 +690,45 @@ The MCP server accepts an optional `provider` (opt-in, R6): when set, the
 `canon_*` predicates are registered and `socratic_canon_query` appears in
 `tools/list`.
 
+### Multi-bridge (new)
+
+For scenarios requiring certification across multiple data sources, the
+`MultiBridge` routes `canon_*` predicates to different providers by domain:
+
+```python
+from socratic_engine.multi_bridge import MultiBridge
+
+bridge = MultiBridge()
+bridge.add_provider("agent-state", vsm_provider, ["tasks", "sessions"])
+bridge.add_provider("infra-state", ssh_provider, ["services", "lxcs"])
+bridge.add_provider("vsm-docs", doc_provider, ["boot", "s1-operations"])
+bridge.register(eng)
+
+# Now the engine can certify across all domains:
+ev = eng.evaluate({"op": "AND", "children": [
+    {"predicate": "canon_query", "args": ["services", '{"name": "api"}']},
+    {"predicate": "canon_query", "args": ["boot", '{"name": "covenant"}']},
+]})
+```
+
+Or load from config:
+
+```bash
+SOCRATIC_BRIDGE_CONFIG=bridge_config.json python -m socratic_engine.mcp_server
+```
+
+**Provider health tracking**: each provider tracks consecutive failures.
+After 3 failures, the provider is marked unhealthy and `canon_providers`
+returns `UNKNOWN`. Failed queries return `UNKNOWN` (not FALSE) — a
+provider crash is indetermination, not falsity.
+
+**Routing observability**: every `canon_*` predicate includes routing
+info in its evidence: provider name, domain, latency_ms, record_count.
+This makes provider selection inspectable in the evaluation tree.
+
+See [`socratic_engine/multi_bridge.py`](./socratic_engine/multi_bridge.py) for
+the full API and config format.
+
 ---
 
 ## CLI
@@ -741,7 +785,7 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-189 passed
+382 passed
 ```
 
 at 100% statement coverage (CI gates at 90%; uncovered lines are
@@ -814,12 +858,18 @@ socratic-engine/
 │   ├── tree.py             # builder + VSL parser + tree routing
 │   ├── cli.py              # command-line interface
 │   ├── mcp_server.py       # MCP / JSON-RPC bridge + rate limiter
-│   └── bridge_statecanon.py # official state-canon bridge (opt-in)
+│   ├── multi_bridge.py     # multi-provider routing (canon_* by domain)
+│   ├── bridge_statecanon.py # official state-canon bridge (opt-in)
+│   └── providers/
+│       ├── __init__.py
+│       └── vsm_doc.py      # VSM documentation filesystem provider
 └── tests/
     ├── test_engine.py
     ├── test_mcp_server.py
     ├── test_cli.py
     ├── test_bridge_statecanon.py
+    ├── test_multi_bridge.py
+    ├── test_vsm_doc.py
     └── test_state_canon_integration.py
 ```
 
@@ -1024,12 +1074,22 @@ Its purpose is narrower:
 - [x] caching and rate limiting for expensive predicates
 - [x] published on PyPI (v0.2.0 → v0.2.3; bridge + ejemplos desde 0.2.2; license metadata Apache-only desde 0.2.3)
 - [x] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
+- [x] multi-bridge: route canon_* predicates to multiple providers by domain
+- [x] VsmDocProvider: VSM documentation as queryable records
+- [x] config-driven provider loading (bridge_config.json)
+- [x] provider health tracking (3-failure threshold → UNKNOWN)
+- [x] routing observability (provider, domain, latency, record count in evidence)
+- [x] semantic simplification: NOT flattening, contradiction/tautology, dedup, absorption
+- [x] short-circuit evaluation (AND stops at first FALSE, OR at first certified TRUE)
+- [x] tree DoS prevention (depth ≤ 100, nodes ≤ 10,000)
+- [x] 382-test suite + 46 adversarial tests (6 categories)
 
 ### v0.3.x — formal extension
 
-- [ ] paraconsistent logic
-- [ ] contextual / frame semantics
-- [ ] stakeholder participation graphs
+- [x] DIALECTICAL_AND — certified contradiction (exists since v0.1)
+- [ ] paraconsistent logic (full: beyond pairwise contradiction)
+- [ ] contextual / frame semantics (hermeneutica: meaning from context)
+- [ ] stakeholder participation graphs (discursive ethics)
 - [ ] formal VSM → Socratic Engine derivation
 
 The roadmap is intentionally open: the next features should be driven by failures observed in the experimental programme, not by feature accumulation.

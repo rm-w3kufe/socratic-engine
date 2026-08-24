@@ -13,31 +13,53 @@ four modules:
 |---|---|
 | `socratic_engine/engine.py` | The evaluator: `Truth`, `Evaluation`, `PredicateResult`, `SocraticEngine`, `FailureTrace`, `diagnose()` |
 | `socratic_engine/tree.py` | Parsing + tree building: `SocraticTreeBuilder`, `parse_socratic_block()`, `tree_home()` |
+| `socratic_engine/semantics.py` | Semantic simplification: NOT flattening, contradiction/tautology, dedup, absorption |
 | `socratic_engine/cli.py` | External contract: `socratic-engine eval-tree <tree> [--context JSON] [--doc-type T]` + `selftest` |
-| `socratic_engine/mcp_server.py` | MCP bridge: `socratic_evaluate`, `socratic_diagnose`, `socratic_build` |
+| `socratic_engine/mcp_server.py` | MCP bridge: `socratic_evaluate`, `socratic_diagnose`, `socratic_build` + DoS limits + simplify |
+| `socratic_engine/multi_bridge.py` | Multi-provider routing: `MultiBridge`, domain-based canon_* dispatch, provider health tracking |
+| `socratic_engine/bridge_statecanon.py` | Official state-canon bridge (single provider, opt-in) |
+| `socratic_engine/providers/vsm_doc.py` | VSM documentation filesystem provider |
 
 ```
-                ┌────────────────────────────────────────────┐
-                │              socratic-engine                │
-                │                                              │
-  tree.vsm ───► │  parse_socratic_block / SocraticTreeBuilder │
-                │              │                               │
-                │              ▼                               │
-                │      SocraticEngine.evaluate(node, ctx)      │
-                │              │  ┌──► predicates (built-in    │
-                │              │  │     or registered)         │
-                │              ▼  │                            │
-                │      Evaluation (rich, recursive)            │
-                │      truth/certified/evidence/children       │
-                │              │                               │
-                │              ▼                               │
-                │      diagnose() → FailureTrace[]             │
-                │                                              │
-                └──────────────┬───────────────────────────────┘
+                ┌──────────────────────────────────────────────────┐
+                │                socratic-engine                  │
+                │                                                │
+  tree.vsm ───► │  parse_socratic_block / SocraticTreeBuilder     │
+                │              │                                   │
+                │              ▼                                   │
+                │  _validate_tree_limits(depth≤100, nodes≤10K)    │
+                │              │                                   │
+                │              ▼                                   │
+                │  simplify() → semantic patterns                 │
+                │  (NOT flatten, contradiction, dedup, absorption)│
+                │              │                                   │
+                │              ▼                                   │
+                │      SocraticEngine.evaluate(node, ctx)          │
+                │      + _evaluate_short_circuit(AND/OR)          │
+                │              │  ┌──► predicates (built-in       │
+                │              │  │     or registered)            │
+                │              ▼  │                               │
+                │      Evaluation (rich, recursive)               │
+                │      truth/certified/evidence/children          │
+                │              │                                   │
+                │              ▼                                   │
+                │      diagnose() → FailureTrace[]                │
+                │                                                │
+                └──────────────┬─────────────────────────────────┘
                                │
               ┌────────────────┼──────────────────┐
               ▼                ▼                  ▼
         CLI eval-tree    MCP server        (future: library API)
+                     ┌─────────────┐
+                     │ MultiBridge  │
+                     │  routing     │
+                     │  health      │
+                     │  observability│
+                     └──────┬──────┘
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+         provider A    provider B    provider C
 ```
 
 ## Core data model
@@ -136,6 +158,100 @@ can synthesize. A certified `UNKNOWN` is "evidence in conflict", not
 "no evidence". `diagnose()` reports no guilty children for a certified
 conflict — blaming a child would be taking a side. See ONTOLOGY.md.
 
+## Semantic simplification (semantics.py)
+
+Before evaluation, `simplify()` runs as a pre-processor on the tree.
+It detects and resolves pathological patterns that would otherwise waste
+evaluation cycles or produce misleading results.
+
+**Pipeline** (called from `socratic_evaluate` after `_validate_tree_limits`):
+
+1. **NOT chain flattening** — `NOT(NOT(NOT(P)))` → `NOT(P)` (odd) or
+   `P` (even). O(depth) → O(1).
+
+2. **Contradiction / tautology** — `AND(A, NOT(A))` → `_resolved: FALSE`.
+   `OR(A, NOT(A))` → `_resolved: TRUE`. Pairwise structural equality
+   check, O(n²) where n = children count.
+
+3. **Child deduplication** — `AND(P, P, P)` → `AND(P)` → `P`. Uses
+   `structural_equal()` for recursive dict comparison.
+
+4. **Absorption** — `AND(A, OR(A, B))` → `A`. `OR(A, AND(A, B))` → `A`.
+   Detects when a sibling appears inside a nested OR/AND.
+
+5. **Deep contradiction** — `AND(P∧Q, NOT(P∧Q))` detected via recursive
+   `structural_equal()` (not just shallow key comparison).
+
+**Resolution markers**: simplify returns either a simplified tree dict
+or `{"_resolved": true, "truth": bool}`. The MCP server unwraps
+markers before calling `engine.evaluate()`.
+
+## Tree DoS prevention
+
+`_validate_tree_limits()` runs before simplification and evaluation.
+Two hard limits:
+
+- **MAX_TREE_DEPTH = 100** — prevents left-deep recursion chains
+- **MAX_TREE_NODES = 10,000** — prevents exponential branching
+
+Depth is tracked per-path (increment going down, max across siblings).
+A balanced binary tree with 5K leaves (depth=14, 9999 nodes) passes;
+a left-deep chain of 101 nodes (depth=101) is rejected.
+
+## Short-circuit evaluation (engine.py)
+
+`_evaluate_short_circuit()` wraps child evaluation for AND and OR:
+
+- **AND**: stops at first certified FALSE → returns immediately
+- **OR**: stops at first certified TRUE (not just TRUE — must be
+  certified) → returns immediately
+
+ uncertified TRUE does NOT trigger OR short-circuit: a predicate
+returning `TRUE, certified=FALSE` (e.g., LLM opinion) is not sufficient
+evidence to satisfy an OR gate.
+
+## Multi-bridge (multi_bridge.py)
+
+Routes `canon_*` predicates to providers by domain. Architecture:
+
+```
+canon_query(domain, filter)
+       │
+       ▼
+  MultiBridge._records(domain, filter)
+       │
+       ├─► provider.agent-state.query("tasks", filter)  → records
+       ├─► provider.infra-state.query("services", filter) → records
+       └─► provider.vsm-docs.query("docs", filter)      → records
+       │
+       ▼
+  (records, routing_info)
+```
+
+### Provider health tracking
+
+Each `ProviderEntry` tracks:
+- `_healthy` (bool, default True)
+- `_consecutive_failures` (int)
+- `_last_error` (str | None)
+- `_last_check` (float | None)
+
+**Threshold**: 3 consecutive failures → `_healthy = False`.
+`canon_providers` returns `UNKNOWN` if any registered provider is
+unhealthy. Failed queries return `UNKNOWN` (not FALSE) — a provider
+crash is indetermination, not falsity.
+
+### Routing observability
+
+`_records()` returns `(records, routing_info)` where routing contains:
+- `provider` — which provider answered
+- `domain` — queried domain
+- `latency_ms` — query time
+- `record_count` — records returned
+
+All `canon_*` predicates include routing in their evidence dict.
+This makes provider selection inspectable in the evaluation tree.
+
 ## The truth/certification split
 
 The single most important design decision:
@@ -202,14 +318,34 @@ original predicate.
 
 ## MCP server (mcp_server.py)
 
-`SocraticMCP` exposes three operations:
+`SocraticMCP` exposes 9 operations:
 
-- `socratic_evaluate(tree, context)` — evaluate and return the result dict
+**Core:**
+- `socratic_evaluate(tree, context)` — simplify → evaluate → return result dict
 - `socratic_diagnose(tree, context)` — return the failure traces
 - `socratic_build(tree)` — normalize a raw tree into canonical form
 
+**Multi-bridge (canon_*):**
+- `socratic_canon_query(domain, filter)` — query records from a provider
+- `socratic_canon_matches(domain, filter, expected)` — check if records match
+- `socratic_canon_field_equals(domain, filter, field, expected)` — field equality
+- `socratic_canon_drift(domain, filter, declared, observed)` — declared vs observed
+- `socratic_canon_domains` — list all available domains
+- `socratic_canon_providers` — list providers with health status
+
 Runs as `socratic-engine-mcp`. The `mcp` extra (`mcp>=1.0`) is
 optional — core engine has zero dependencies.
+
+**Request flow:**
+
+```
+JSON-RPC request
+  → _resolve_tree()        (parse JSON string if needed)
+  → _validate_tree_limits() (depth ≤ 100, nodes ≤ 10K)
+  → simplify()              (semantic patterns)
+  → engine.evaluate()       (recursive, with short-circuit)
+  → result dict
+```
 
 ### Rate limiting (v0.2.0)
 
