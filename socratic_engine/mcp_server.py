@@ -309,6 +309,10 @@ class SocraticMCP:
                 elif name == "socratic_build":
                     result = self.socratic_build(args.get("tree"))
                 elif name.startswith("socratic_canon_"):
+                    # No bridge registered → tool not available
+                    if self.bridge is None and self._multi_bridge is None:
+                        return self._error(req_id, -32601,
+                                           "No state-canon bridge registered")
                     # Route all canon_* tools through the engine
                     predicate = name.replace("socratic_canon_", "canon_")
                     # Map tool args to predicate args
