@@ -31,6 +31,9 @@
 - [x] Predicados pragmáticos (feedback loops, tendencias temporales)
 - [x] Cache TTL para predicados costosos
 - [x] Rate limiting en MCP server
+- [x] Semantic simplification (NOT flatten, contradiction/tautology, dedup, absorption)
+- [x] Short-circuit evaluation (AND stops at first FALSE, OR at first certified TRUE)
+- [x] Tree DoS prevention (depth ≤ 100, nodes ≤ 10,000)
 
 ### Ecosistema
 - [x] Publicar en PyPI (pip install socratic-engine) — **0.2.0 publicado** https://pypi.org/project/socratic-engine/0.2.0/ (verificado: instalación desde PyPI + dialéctico operativo)
@@ -42,7 +45,9 @@
   - VsmDocProvider: parsea headers VSM del filesystem, expone como records consultables
   - SocraticMCP: acepta bridge_config o multi_bridge (backward compatible)
   - Config-driven: bridge_config.json con lazy loading de providers
-  - 382 tests (46 nuevos), 0 regresiones
+  - Provider health tracking (3-failure threshold → UNKNOWN)
+  - Routing observability (provider, domain, latency_ms, record_count in evidence)
+  - 382 tests + 46 adversarial tests, 0 regresiones
 
 ### Pendiente de estabilización (verificado 2026-08-19)
 - [x] **Release 0.2.2 a PyPI** — el bridge + ejemplos (commits hasta 4b506db)
@@ -56,7 +61,8 @@
 - [ ] VERIFY-E2E-CLAUDE-CODE — verificación en vivo del ejemplo Claude Code (requiere tokens Anthropic)
 
 ## 🚀 Objetivo v0.3.0: Extensión Formal
-- [ ] Lógica paraconsistente (contradicciones certificadas)
+- [x] DIALECTICAL_AND — contradicción certificada (desde v0.1)
+- [ ] Lógica paraconsistente (más allá de contradicción por pares)
 - [ ] Frame semantics (hermenéutica: significado contextual)
 - [ ] Stakeholder participation graphs (ética discursiva)
 - [ ] Integración formal con VSM (derivación VSM→SEF)

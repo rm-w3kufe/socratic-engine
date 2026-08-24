@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain), VsmDocProvider (VSM documentation as queryable records), dialectical operator, pragmatic predicates, caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), benchmarks, a 382-test suite, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K), caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), 382-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -717,6 +717,15 @@ Or load from config:
 SOCRATIC_BRIDGE_CONFIG=bridge_config.json python -m socratic_engine.mcp_server
 ```
 
+**Provider health tracking**: each provider tracks consecutive failures.
+After 3 failures, the provider is marked unhealthy and `canon_providers`
+returns `UNKNOWN`. Failed queries return `UNKNOWN` (not FALSE) — a
+provider crash is indetermination, not falsity.
+
+**Routing observability**: every `canon_*` predicate includes routing
+info in its evidence: provider name, domain, latency_ms, record_count.
+This makes provider selection inspectable in the evaluation tree.
+
 See [`socratic_engine/multi_bridge.py`](./socratic_engine/multi_bridge.py) for
 the full API and config format.
 
@@ -1068,12 +1077,19 @@ Its purpose is narrower:
 - [x] multi-bridge: route canon_* predicates to multiple providers by domain
 - [x] VsmDocProvider: VSM documentation as queryable records
 - [x] config-driven provider loading (bridge_config.json)
+- [x] provider health tracking (3-failure threshold → UNKNOWN)
+- [x] routing observability (provider, domain, latency, record count in evidence)
+- [x] semantic simplification: NOT flattening, contradiction/tautology, dedup, absorption
+- [x] short-circuit evaluation (AND stops at first FALSE, OR at first certified TRUE)
+- [x] tree DoS prevention (depth ≤ 100, nodes ≤ 10,000)
+- [x] 382-test suite + 46 adversarial tests (6 categories)
 
 ### v0.3.x — formal extension
 
-- [ ] paraconsistent logic
-- [ ] contextual / frame semantics
-- [ ] stakeholder participation graphs
+- [x] DIALECTICAL_AND — certified contradiction (exists since v0.1)
+- [ ] paraconsistent logic (full: beyond pairwise contradiction)
+- [ ] contextual / frame semantics (hermeneutica: meaning from context)
+- [ ] stakeholder participation graphs (discursive ethics)
 - [ ] formal VSM → Socratic Engine derivation
 
 The roadmap is intentionally open: the next features should be driven by failures observed in the experimental programme, not by feature accumulation.
