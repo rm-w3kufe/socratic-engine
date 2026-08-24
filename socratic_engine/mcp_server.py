@@ -80,23 +80,47 @@ class RateLimiter:
 class SocraticMCP:
     """JSON-RPC 2.0 server (stdio, newline-delimited) for the engine.
 
-    Opcional: acepta un StateCanonBridge en el constructor. Si está
-    presente, expone la tool extra `socratic_canon_query` (el bridge es
-    opt-in — R6: el MCP core no depende de state-canon)."""
+    Supports two bridge modes (opt-in — R6: the MCP core does not depend
+    on state-canon):
 
-    def __init__(self, provider: Any = None) -> None:
-        """provider: un StateProvider de state-canon (opt-in). Si se pasa,
-        el MCP registra los predicados canon_* sobre su propio engine y
-        expone la tool extra `socratic_canon_query` (R6: el MCP core no
-        depende de state-canon)."""
+    1. **Single provider** (legacy): pass ``provider=`` — registers
+       ``StateCanonBridge`` with the 4 canon_* predicates.
+
+    2. **Multi-bridge**: pass ``bridge_config=`` (path to a JSON config)
+       or ``multi_bridge=`` (an already-created ``MultiBridge``) —
+       registers all providers and exposes canon_* + canon_domains +
+       canon_providers.
+    """
+
+    def __init__(
+        self,
+        provider: Any = None,
+        bridge_config: str | None = None,
+        multi_bridge: Any = None,
+    ) -> None:
         self.engine = SocraticEngine()
         self.builder = SocraticTreeBuilder(self.engine)
         self.rate_limiter = RateLimiter()
         self.provider = provider
         self.bridge = None
-        if self.provider is not None:
+        self._multi_bridge = None
+
+        # --- bridge setup ---
+        if multi_bridge is not None:
+            # Multi-bridge provided directly
+            self._multi_bridge = multi_bridge
+            multi_bridge.register(self.engine)
+        elif bridge_config is not None:
+            # Load multi-bridge from config file
+            from .multi_bridge import MultiBridge
+            self._multi_bridge = MultiBridge.from_config(bridge_config)
+            self._multi_bridge.register(self.engine)
+        elif self.provider is not None:
+            # Legacy single-provider bridge
             from .bridge_statecanon import StateCanonBridge
             self.bridge = StateCanonBridge(self.engine, self.provider)
+
+        # --- tools ---
         self._tools = [
             {"name": "socratic_evaluate", "description":
              "Evaluate a socratic tree (JSON or VSL) against a context; "
@@ -107,11 +131,36 @@ class SocraticMCP:
              "Validate a proposed tree structure against registered "
              "predicates (R10.1: proposal validation, not certification)."},
         ]
-        if self.bridge is not None:
-            self._tools.append({"name": "socratic_canon_query", "description":
-                                "Query state-canon through the registered "
-                                "bridge: canon_query(domain, filter) → "
-                                "TRUE/UNKNOWN certified by evidence."})
+
+        if self._multi_bridge is not None:
+            # Multi-bridge: expose all canon_* tools
+            self._tools.extend([
+                {"name": "socratic_canon_query", "description":
+                 "Query a data source through the multi-bridge: "
+                 "canon_query(domain, filter) → TRUE/UNKNOWN certified "
+                 "by evidence."},
+                {"name": "socratic_canon_matches", "description":
+                 "Check if records match expected values: "
+                 "canon_matches(domain, filter, expected)."},
+                {"name": "socratic_canon_field_equals", "description":
+                 "Check if a field equals expected value: "
+                 "canon_field_equals(domain, filter, field, expected)."},
+                {"name": "socratic_canon_drift", "description":
+                 "Detect declared vs observed drift: "
+                 "canon_drift(domain, filter, declared, observed)."},
+                {"name": "socratic_canon_domains", "description":
+                 "List all available domains across all providers."},
+                {"name": "socratic_canon_providers", "description":
+                 "List all registered providers with their status."},
+            ])
+        elif self.bridge is not None:
+            # Legacy single bridge: only canon_query
+            self._tools.append(
+                {"name": "socratic_canon_query", "description":
+                 "Query state-canon through the registered "
+                 "bridge: canon_query(domain, filter) → "
+                 "TRUE/UNKNOWN certified by evidence."}
+            )
 
     # ── tools ──
 

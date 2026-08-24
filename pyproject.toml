@@ -32,7 +32,7 @@ socratic-engine = "socratic_engine.cli:main"
 socratic-engine-mcp = "socratic_engine.mcp_server:main"
 
 [tool.setuptools]
-packages = ["socratic_engine"]
+packages = ["socratic_engine", "socratic_engine.providers"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
