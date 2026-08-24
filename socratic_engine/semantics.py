@@ -35,7 +35,8 @@ def simplify(node: Any) -> Any:
             return resolved
 
         # Recurse into children after contradiction check
-        new_children = [simplify(c) for c in node.get("children", [])]
+        new_children = [_resolve_marker(c) for c in
+                        (simplify(c) for c in node.get("children", []))]
         node = {**node, "children": new_children}
 
         # Re-check after simplifying children (child may have resolved)
@@ -44,6 +45,13 @@ def simplify(node: Any) -> Any:
             return resolved
 
     return node
+
+
+def _resolve_marker(child: Any) -> Any:
+    """If simplify returned a _resolved marker, convert to boolean literal."""
+    if isinstance(child, dict) and child.get("_resolved"):
+        return child["truth"]  # True or False
+    return child
 
 
 # ── Pattern 1: NOT chain ──────────────────────────────────────
