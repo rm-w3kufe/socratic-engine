@@ -214,6 +214,7 @@ class SocraticMCP:
         """Evaluate a socratic tree against a context. tree: dict (JSON) or
         str (VSL socratic(...) block or JSON text). Returns the decision."""
         parsed = self._resolve_tree(tree)
+        self._validate_tree_limits(parsed)
         ctx = self._resolve_context(context)
         ev = self.engine.evaluate(parsed, ctx)
         return {
@@ -228,18 +229,48 @@ class SocraticMCP:
     def socratic_diagnose(self, tree: Any, context: Any = None) -> list:
         """Inverse trace: only the nodes that caused certification failure."""
         parsed = self._resolve_tree(tree)
+        self._validate_tree_limits(parsed)
         return [str(t) for t in self.engine.diagnose(parsed, self._resolve_context(context))]
 
     def socratic_build(self, tree: Any) -> dict:
         """Validate a proposed tree (LLM proposal). R10.1: the engine
         validates structure + predicate existence; it never certifies."""
         try:
-            self.builder.build(self._resolve_tree(tree))
+            parsed = self._resolve_tree(tree)
+            self._validate_tree_limits(parsed)
+            self.builder.build(parsed)
             return {"ok": True, "errors": []}
         except (ValueError, TypeError) as e:
             return {"ok": False, "errors": [str(e)]}
 
     # ── helpers ──
+
+    MAX_TREE_DEPTH = 100
+    MAX_TREE_NODES = 10000
+
+    def _validate_tree_limits(self, node: Any, depth: int = 0,
+                              count: int = 0) -> tuple[int, int]:
+        """Check tree depth and node count. Returns (depth, count).
+        Raises ValueError if limits exceeded."""
+        count += 1
+        if count > self.MAX_TREE_NODES:
+            raise ValueError(
+                f"Tree has >{self.MAX_TREE_NODES} nodes "
+                f"(DoS vector: exponential branching)"
+            )
+        if isinstance(node, dict) and "op" in node:
+            depth += 1
+            if depth > self.MAX_TREE_DEPTH:
+                raise ValueError(
+                    f"Tree depth >{self.MAX_TREE_DEPTH} "
+                    f"(DoS vector: deep recursion chain)"
+                )
+            for child in node.get("children", []):
+                depth, count = self._validate_tree_limits(child, depth, count)
+        elif isinstance(node, dict) and "children" in node:
+            for child in node.get("children", []):
+                depth, count = self._validate_tree_limits(child, depth, count)
+        return depth, count
 
     def _resolve_tree(self, tree: Any) -> dict:
         if isinstance(tree, str):
