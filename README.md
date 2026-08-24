@@ -8,7 +8,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.3 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K), caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), 382-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.4 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K), caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), 382-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -754,7 +754,7 @@ This makes the same engine usable from:
 
 ## Install
 
-### From PyPI (v0.2.3)
+### From PyPI (v0.2.4)
 
 ```bash
 pip install socratic-engine
@@ -830,7 +830,7 @@ The workflow FAILS loudly (it does not publish) if:
 - the wheel metadata contains anything other than Apache-2.0
   (guard against the MIT-classifier regression that hit 0.2.2)
 
-Validated end-to-end 2026-08-19 (tag `v0.2.3` test run):
+Validated end-to-end 2026-08-24 (tag `v0.2.4` test run):
 sync guard ✓ → suite ✓ → build ✓ → metadata guard ✓ → publish reached
 PyPI with the token authenticated (server answered `400 File already
 exists` for the intentionally-republished version — a bad token would
@@ -1072,7 +1072,7 @@ Its purpose is narrower:
 - [x] dialectical operator for legitimate contradictions
 - [x] temporal / pragmatic predicates
 - [x] caching and rate limiting for expensive predicates
-- [x] published on PyPI (v0.2.0 → v0.2.3; bridge + ejemplos desde 0.2.2; license metadata Apache-only desde 0.2.3)
+- [x] published on PyPI (v0.2.0 → v0.2.4; bridge + ejemplos desde 0.2.2; license metadata Apache-only desde 0.2.3)
 - [x] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
 - [x] multi-bridge: route canon_* predicates to multiple providers by domain
 - [x] VsmDocProvider: VSM documentation as queryable records
