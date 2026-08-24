@@ -593,6 +593,47 @@ class SocraticEngine:
     # Evaluación de operadores lógicos
     # --------------------------------------------------------
 
+    def _evaluate_short_circuit(
+        self,
+        children_nodes: List[Any],
+        ctx: Dict[str, Any],
+        stop_on: Truth,
+    ) -> List[Evaluation]:
+        """Evaluate children lazily, stopping on a DECISIVE result.
+
+        For AND: stop on first FALSE (always decisive).
+        For OR:  stop on first certified TRUE (uncertified TRUE is not
+                 decisive — a later sibling may be certified).
+
+        Unevaluated children are recorded as UNKNOWN with source
+        'short_circuit'.  If we exhaust all children without a decisive
+        stop, returns full list (caller applies _apply_operator as usual).
+        """
+        children: List[Evaluation] = []
+        for child_node in children_nodes:
+            ev = self.evaluate(child_node, ctx)
+            children.append(ev)
+
+            if stop_on == Truth.FALSE:
+                # AND: FALSE is always decisive
+                if ev.truth == Truth.FALSE:
+                    for _ in children_nodes[len(children):]:
+                        children.append(Evaluation(
+                            truth=Truth.UNKNOWN, certified=False,
+                            source="short_circuit", context=ctx.copy(),
+                        ))
+                    break
+            elif stop_on == Truth.TRUE:
+                # OR: certified TRUE is decisive; uncertified is NOT
+                if ev.truth == Truth.TRUE and ev.certified:
+                    for _ in children_nodes[len(children):]:
+                        children.append(Evaluation(
+                            truth=Truth.UNKNOWN, certified=False,
+                            source="short_circuit", context=ctx.copy(),
+                        ))
+                    break
+        return children
+
     def _evaluate_operator(
         self,
         node: Dict[str, Any],
@@ -603,7 +644,16 @@ class SocraticEngine:
             raise ValueError(f"Operador desconocido: {op}")
 
         children_nodes = node.get("children", [])
-        children = [self.evaluate(child, ctx) for child in children_nodes]
+
+        # Short-circuit evaluation for AND/OR (semantic optimization)
+        if op == "AND":
+            children = self._evaluate_short_circuit(children_nodes, ctx,
+                                                    stop_on=Truth.FALSE)
+        elif op == "OR":
+            children = self._evaluate_short_circuit(children_nodes, ctx,
+                                                    stop_on=Truth.TRUE)
+        else:
+            children = [self.evaluate(child, ctx) for child in children_nodes]
 
         truth = self._apply_operator(op, children)
 

@@ -24,6 +24,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .engine import SocraticEngine, Truth
+from .semantics import simplify
 from .tree import SocraticTreeBuilder, parse_socratic_block
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -216,14 +217,32 @@ class SocraticMCP:
         parsed = self._resolve_tree(tree)
         self._validate_tree_limits(parsed)
         ctx = self._resolve_context(context)
-        ev = self.engine.evaluate(parsed, ctx)
+
+        # Semantic simplification: detect patterns BEFORE evaluation
+        simplified = simplify(parsed)
+        if isinstance(simplified, dict) and simplified.get("_resolved"):
+            # Tree resolved without evaluation (contradiction/tautology)
+            from .engine import Evaluation
+            ev = Evaluation(
+                truth=Truth.TRUE if simplified["truth"] else Truth.FALSE,
+                certified=True,
+                evidence={"simplified": True, "pattern": "contradiction_or_tautology"},
+                source="semantics",
+                context=ctx.copy(),
+            )
+        else:
+            ev = self.engine.evaluate(simplified, ctx)
+
+        # Use original parsed tree for diagnose (simplified may be a marker dict)
+        diagnose_tree = parsed if isinstance(simplified, dict) and simplified.get("_resolved") else simplified
+
         return {
             "truth": ev.truth.name,
             "certified": ev.certified,
             "unknown": ev.is_unknown,
             "home": self._tree_home(parsed, ctx),
             "explain": ev.explain(),
-            "diagnose": [str(t) for t in self.engine.diagnose(parsed, ctx)],
+            "diagnose": [str(t) for t in self.engine.diagnose(diagnose_tree, ctx)],
         }
 
     def socratic_diagnose(self, tree: Any, context: Any = None) -> list:
