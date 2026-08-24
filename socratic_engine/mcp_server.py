@@ -120,16 +120,29 @@ class SocraticMCP:
             from .bridge_statecanon import StateCanonBridge
             self.bridge = StateCanonBridge(self.engine, self.provider)
 
-        # --- tools ---
+        # --- tools (all require inputSchema per MCP spec) ---
         self._tools = [
             {"name": "socratic_evaluate", "description":
              "Evaluate a socratic tree (JSON or VSL) against a context; "
-             "returns truth/certified/home/explain/diagnose."},
+             "returns truth/certified/home/explain/diagnose.",
+             "inputSchema": {"type": "object", "properties": {
+                 "tree": {"description": "Socratic tree (JSON dict or VSL string)"},
+                 "context": {"type": "object", "description":
+                             "Evaluation context (optional)"},
+             }, "required": ["tree"]}},
             {"name": "socratic_diagnose", "description":
-             "Inverse trace: which nodes failed certification."},
+             "Inverse trace: which nodes failed certification.",
+             "inputSchema": {"type": "object", "properties": {
+                 "tree": {"description": "Socratic tree (JSON dict or VSL string)"},
+                 "context": {"type": "object", "description":
+                             "Evaluation context (optional)"},
+             }, "required": ["tree"]}},
             {"name": "socratic_build", "description":
              "Validate a proposed tree structure against registered "
-             "predicates (R10.1: proposal validation, not certification)."},
+             "predicates (R10.1: proposal validation, not certification).",
+             "inputSchema": {"type": "object", "properties": {
+                 "tree": {"description": "Proposed tree (JSON dict or VSL string)"},
+             }, "required": ["tree"]}},
         ]
 
         if self._multi_bridge is not None:
@@ -138,20 +151,49 @@ class SocraticMCP:
                 {"name": "socratic_canon_query", "description":
                  "Query a data source through the multi-bridge: "
                  "canon_query(domain, filter) → TRUE/UNKNOWN certified "
-                 "by evidence."},
+                 "by evidence.",
+                 "inputSchema": {"type": "object", "properties": {
+                     "domain": {"type": "string", "description":
+                                "Data domain to query (e.g. 'services', 'tasks')"},
+                     "filter": {"type": "object", "description":
+                                "Filter criteria (key-value pairs)"},
+                 }, "required": ["domain", "filter"]}},
                 {"name": "socratic_canon_matches", "description":
                  "Check if records match expected values: "
-                 "canon_matches(domain, filter, expected)."},
+                 "canon_matches(domain, filter, expected).",
+                 "inputSchema": {"type": "object", "properties": {
+                     "domain": {"type": "string"},
+                     "filter": {"type": "object"},
+                     "expected": {"description": "Expected values to match"},
+                 }, "required": ["domain", "filter", "expected"]}},
                 {"name": "socratic_canon_field_equals", "description":
                  "Check if a field equals expected value: "
-                 "canon_field_equals(domain, filter, field, expected)."},
+                 "canon_field_equals(domain, filter, field, expected).",
+                 "inputSchema": {"type": "object", "properties": {
+                     "domain": {"type": "string"},
+                     "filter": {"type": "object"},
+                     "field": {"type": "string", "description":
+                               "Field name to check"},
+                     "expected": {"description": "Expected value"},
+                 }, "required": ["domain", "filter", "field", "expected"]}},
                 {"name": "socratic_canon_drift", "description":
                  "Detect declared vs observed drift: "
-                 "canon_drift(domain, filter, declared, observed)."},
+                 "canon_drift(domain, filter, declared, observed).",
+                 "inputSchema": {"type": "object", "properties": {
+                     "domain": {"type": "string"},
+                     "filter": {"type": "object"},
+                     "declared_field": {"type": "string", "description":
+                                        "Field name in declared state"},
+                     "observed_field": {"type": "string", "description":
+                                        "Field name in observed state"},
+                 }, "required": ["domain", "filter",
+                                 "declared_field", "observed_field"]}},
                 {"name": "socratic_canon_domains", "description":
-                 "List all available domains across all providers."},
+                 "List all available domains across all providers.",
+                 "inputSchema": {"type": "object", "properties": {}}},
                 {"name": "socratic_canon_providers", "description":
-                 "List all registered providers with their status."},
+                 "List all registered providers with their status.",
+                 "inputSchema": {"type": "object", "properties": {}}},
             ])
         elif self.bridge is not None:
             # Legacy single bridge: only canon_query
@@ -159,7 +201,11 @@ class SocraticMCP:
                 {"name": "socratic_canon_query", "description":
                  "Query state-canon through the registered "
                  "bridge: canon_query(domain, filter) → "
-                 "TRUE/UNKNOWN certified by evidence."}
+                 "TRUE/UNKNOWN certified by evidence.",
+                 "inputSchema": {"type": "object", "properties": {
+                     "domain": {"type": "string"},
+                     "filter": {"type": "object"},
+                 }, "required": ["domain", "filter"]}}
             )
 
     # ── tools ──
@@ -249,13 +295,29 @@ class SocraticMCP:
                     result = self.socratic_diagnose(args.get("tree"), args.get("context"))
                 elif name == "socratic_build":
                     result = self.socratic_build(args.get("tree"))
-                elif name == "socratic_canon_query":
-                    if self.bridge is None:
+                elif name.startswith("socratic_canon_"):
+                    # Route all canon_* tools through the engine
+                    predicate = name.replace("socratic_canon_", "canon_")
+                    # Map tool args to predicate args
+                    if predicate == "canon_query":
+                        pargs = [args.get("domain"), args.get("filter")]
+                    elif predicate == "canon_matches":
+                        pargs = [args.get("domain"), args.get("filter"),
+                                 args.get("expected")]
+                    elif predicate == "canon_field_equals":
+                        pargs = [args.get("domain"), args.get("filter"),
+                                 args.get("field"), args.get("expected")]
+                    elif predicate == "canon_drift":
+                        pargs = [args.get("domain"), args.get("filter"),
+                                 args.get("declared_field"),
+                                 args.get("observed_field")]
+                    elif predicate in ("canon_domains", "canon_providers"):
+                        pargs = []
+                    else:
                         return self._error(req_id, -32601,
-                                           "No state-canon bridge registered")
+                                           f"Unknown canon predicate: {predicate}")
                     ev = self.engine.evaluate(
-                        {"predicate": "canon_query",
-                         "args": [args.get("domain"), args.get("filter")]})
+                        {"predicate": predicate, "args": pargs})
                     result = {"truth": ev.truth.name,
                               "certified": ev.certified,
                               "evidence": ev.evidence,
