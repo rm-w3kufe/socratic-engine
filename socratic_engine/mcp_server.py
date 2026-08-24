@@ -269,7 +269,7 @@ class SocraticMCP:
 
     def _validate_tree_limits(self, node: Any, depth: int = 0,
                               count: int = 0) -> tuple[int, int]:
-        """Check tree depth and node count. Returns (depth, count).
+        """Check tree depth and node count. Returns (max_depth, count).
         Raises ValueError if limits exceeded."""
         count += 1
         if count > self.MAX_TREE_NODES:
@@ -284,11 +284,17 @@ class SocraticMCP:
                     f"Tree depth >{self.MAX_TREE_DEPTH} "
                     f"(DoS vector: deep recursion chain)"
                 )
+            max_d = depth
             for child in node.get("children", []):
-                depth, count = self._validate_tree_limits(child, depth, count)
+                child_depth, count = self._validate_tree_limits(child, depth, count)
+                max_d = max(max_d, child_depth)
+            return max_d, count
         elif isinstance(node, dict) and "children" in node:
+            max_d = depth
             for child in node.get("children", []):
-                depth, count = self._validate_tree_limits(child, depth, count)
+                child_depth, count = self._validate_tree_limits(child, depth, count)
+                max_d = max(max_d, child_depth)
+            return max_d, count
         return depth, count
 
     def _resolve_tree(self, tree: Any) -> dict:

@@ -45,6 +45,9 @@ def simplify(node: Any) -> Any:
 
         # 3. Deduplicate children
         node = _dedup_children(node)
+        if not isinstance(node, dict):
+            # Dedup collapsed to a single non-dict child (e.g., boolean literal)
+            return {"_resolved": True, "truth": bool(node)}
         op = node.get("op")  # re-read after dedup
 
         # 4. Absorption check
