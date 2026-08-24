@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import importlib
 import logging
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -45,18 +46,26 @@ def _normalize_filter(filter_arg: Any) -> Optional[dict]:
 
 
 class ProviderEntry:
-    """Wrapper for a registered provider with metadata."""
+    """Wrapper for a registered provider with metadata and health tracking."""
 
     def __init__(self, name: str, provider: Any, domains: list[str]):
         self.name = name
         self.provider = provider
         self.domains = domains
         self.status = 'active'
+        # Health tracking (GAP-6)
+        self._healthy = True
+        self._last_error: Optional[str] = None
+        self._last_check: Optional[float] = None  # monotonic timestamp
+        self._consecutive_failures = 0
 
     def query(self, domain: str, filter_dict: dict) -> list[dict]:
         try:
-            return self.provider.query(domain, filter_dict)
+            result = self.provider.query(domain, filter_dict)
+            self._record_success()
+            return result
         except Exception as e:
+            self._record_failure(str(e))
             logger.warning(
                 f"Provider '{self.name}' query failed for domain "
                 f"'{domain}': {e}"
@@ -65,12 +74,41 @@ class ProviderEntry:
 
     def list_domains(self) -> list[str]:
         try:
-            return self.provider.list_domains()
+            domains = self.provider.list_domains()
+            self._record_success()
+            return domains
         except Exception as e:
+            self._record_failure(str(e))
             logger.warning(
                 f"Provider '{self.name}' list_domains failed: {e}"
             )
             return []
+
+    def _record_success(self) -> None:
+        """Record a successful interaction."""
+        self._healthy = True
+        self._last_error = None
+        self._last_check = time.monotonic()
+        self._consecutive_failures = 0
+
+    def _record_failure(self, error: str) -> None:
+        """Record a failed interaction."""
+        self._consecutive_failures += 1
+        self._last_error = error
+        self._last_check = time.monotonic()
+        # Mark unhealthy after 3 consecutive failures
+        if self._consecutive_failures >= 3:
+            self._healthy = False
+
+    @property
+    def health(self) -> dict:
+        """Return health metadata for this provider."""
+        return {
+            "healthy": self._healthy,
+            "last_error": self._last_error,
+            "last_check": self._last_check,
+            "consecutive_failures": self._consecutive_failures,
+        }
 
 
 class MultiBridge:
@@ -153,53 +191,90 @@ class MultiBridge:
 
     def _records(
         self, domain: str, filter_arg: Any
-    ) -> Optional[list[dict]]:
-        """Query the correct provider for records."""
+    ) -> tuple[Optional[list[dict]], Optional[dict]]:
+        """Query the correct provider for records.
+
+        Returns (records, routing_info). routing_info is None if the
+        domain is unknown. Otherwise it contains provider name and
+        latency (GAP-7: routing observability).
+        """
         filt = _normalize_filter(filter_arg)
         if filt is None:
-            return None
+            return None, None
 
         entry = self._get_provider(domain)
         if entry is None:
-            return None  # unknown domain -> UNKNOWN
+            return None, None  # unknown domain -> UNKNOWN
 
+        t0 = time.monotonic()
         try:
-            return entry.query(domain, filt)
+            records = entry.query(domain, filt)
+            latency_ms = (time.monotonic() - t0) * 1000
+            routing = {
+                "provider": entry.name,
+                "domain": domain,
+                "latency_ms": round(latency_ms, 1),
+                "record_count": len(records) if records else 0,
+            }
+            return records, routing
         except (ValueError, KeyError, TypeError):
-            return None
+            latency_ms = (time.monotonic() - t0) * 1000
+            routing = {
+                "provider": entry.name,
+                "domain": domain,
+                "latency_ms": round(latency_ms, 1),
+                "error": True,
+            }
+            return None, routing
         except Exception:
-            return None
+            latency_ms = (time.monotonic() - t0) * 1000
+            routing = {
+                "provider": entry.name,
+                "domain": domain,
+                "latency_ms": round(latency_ms, 1),
+                "error": True,
+            }
+            return None, routing
 
     # ── predicates ──────────────────────────────────────────────────────
 
     def _canon_query(
         self, domain: str, filter_arg: Any = None, **kw
     ) -> PredicateResult:
-        records = self._records(domain, filter_arg)
+        records, routing = self._records(domain, filter_arg)
         if records is None:
             entry = self._get_provider(domain)
             reason = "unknown_domain" if entry is None else "query_failed"
+            evidence = {"domain": domain, "reason": reason}
+            if routing:
+                evidence["routing"] = routing
             return PredicateResult(
                 truth=Truth.UNKNOWN,
                 certified=False,
-                evidence={"domain": domain, "reason": reason},
+                evidence=evidence,
                 source="canon_query",
             )
         if not records:
+            evidence = {
+                "domain": domain,
+                "filter": filter_arg,
+                "reason": "no_records",
+            }
+            if routing:
+                evidence["routing"] = routing
             return PredicateResult(
                 truth=Truth.UNKNOWN,
                 certified=False,
-                evidence={
-                    "domain": domain,
-                    "filter": filter_arg,
-                    "reason": "no_records",
-                },
+                evidence=evidence,
                 source="canon_query",
             )
+        evidence = {"domain": domain, "count": len(records)}
+        if routing:
+            evidence["routing"] = routing
         return PredicateResult(
             truth=Truth.TRUE,
             certified=True,
-            evidence={"domain": domain, "count": len(records)},
+            evidence=evidence,
             source="canon_query",
         )
 
@@ -210,12 +285,15 @@ class MultiBridge:
         expected_arg: Any,
         **kw,
     ) -> PredicateResult:
-        records = self._records(domain, filter_arg)
+        records, routing = self._records(domain, filter_arg)
         if records is None or not records:
+            evidence = {"domain": domain, "reason": "no_evidence"}
+            if routing:
+                evidence["routing"] = routing
             return PredicateResult(
                 truth=Truth.UNKNOWN,
                 certified=False,
-                evidence={"domain": domain, "reason": "no_evidence"},
+                evidence=evidence,
                 source="canon_matches",
             )
         expected = _normalize_filter(expected_arg)
@@ -252,12 +330,15 @@ class MultiBridge:
         expected: Any,
         **kw,
     ) -> PredicateResult:
-        records = self._records(domain, filter_arg)
+        records, routing = self._records(domain, filter_arg)
         if records is None or not records:
+            evidence = {"domain": domain, "reason": "no_evidence"}
+            if routing:
+                evidence["routing"] = routing
             return PredicateResult(
                 truth=Truth.UNKNOWN,
                 certified=False,
-                evidence={"domain": domain, "reason": "no_evidence"},
+                evidence=evidence,
                 source="canon_field_equals",
             )
         if field not in records[0]:
@@ -292,12 +373,15 @@ class MultiBridge:
         observed_field: str,
         **kw,
     ) -> PredicateResult:
-        records = self._records(domain, filter_arg)
+        records, routing = self._records(domain, filter_arg)
         if records is None or not records:
+            evidence = {"domain": domain, "reason": "no_evidence"}
+            if routing:
+                evidence["routing"] = routing
             return PredicateResult(
                 truth=Truth.UNKNOWN,
                 certified=False,
-                evidence={"domain": domain, "reason": "no_evidence"},
+                evidence=evidence,
                 source="canon_drift",
             )
         drift = [
@@ -350,7 +434,7 @@ class MultiBridge:
         )
 
     def _canon_providers(self, **kw) -> PredicateResult:
-        """List all registered providers with their status."""
+        """List all registered providers with their status and health."""
         providers = []
         for name, entry in self._providers.items():
             try:
@@ -366,6 +450,7 @@ class MultiBridge:
                     "domains": domains,
                     "status": status,
                     "declared_domains": entry.domains,
+                    "health": entry.health,
                 }
             )
 
