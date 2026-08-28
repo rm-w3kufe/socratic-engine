@@ -46,6 +46,10 @@ jobs:
           fi
           echo "✓ tag, pyproject, __init__ sincronizados ($PKG_VERSION)"
 
+      - name: Clone state-canon-mcp (bridge dependency)
+        run: |
+          git clone --depth 1 https://github.com/rm-w3kufe/state-canon-mcp.git ~/state-canon-mcp
+
       - name: Run full test suite before release
         run: |
           pip install -e ".[dev]"

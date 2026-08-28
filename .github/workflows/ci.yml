@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Clone state-canon-mcp (bridge dependency)
+        run: |
+          git clone --depth 1 https://github.com/rm-w3kufe/state-canon-mcp.git ~/state-canon-mcp
       - name: Install package (core)
         run: |
           python -m pip install --upgrade pip
