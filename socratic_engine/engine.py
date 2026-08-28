@@ -176,9 +176,10 @@ class SocraticEngine:
 
     OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES", "DIALECTICAL_AND"}
 
-    def __init__(self):
+    def __init__(self, *, inject_context_always: bool = False):
         self.predicates: Dict[str, Predicate] = {}
         self.cache: PredicateCache = PredicateCache()
+        self.inject_context_always = inject_context_always
         self._register_builtins()
 
     # --------------------------------------------------------
@@ -231,6 +232,34 @@ class SocraticEngine:
 
     # Alias de compatibilidad (API previa)
     register_predicate = register
+
+    def register_module(self, module) -> int:
+        """Registra todos los predicados de un módulo externo (v0.2.5).
+        
+        El módulo debe tener una función `register_predicates(engine)` 
+        que registre los predicados en el engine.
+        
+        Retorna el número de predicados registrados.
+        """
+        if hasattr(module, "register_predicates"):
+            before = len(self.predicates)
+            module.register_predicates(self)
+            return len(self.predicates) - before
+        return 0
+
+    def register_predicates_dict(self, predicates: Dict[str, Callable]) -> int:
+        """Registra un diccionario de predicados (v0.2.5).
+        
+        Args:
+            predicates: Dict {nombre: función}
+            
+        Retorna el número de predicados registrados.
+        """
+        count = 0
+        for name, func in predicates.items():
+            self.predicates[name] = func
+            count += 1
+        return count
 
     def _register_builtins(self):
         """Predicados de dominio DETERMINISTAS: preguntas que un nivel puede
@@ -320,8 +349,23 @@ class SocraticEngine:
             )
 
         @self.register("doc_has_status")
-        def doc_has_status(doc, status: str, **kw) -> PredicateResult:
-            """¿El doc declara @status == status? (doc = path)"""
+        def doc_has_status(*args, **kw) -> PredicateResult:
+            """¿El doc declara @status == status? (doc via _context kwarg)
+            v0.2.5: soporta API nueva (status) y antigua (doc, status)."""
+            ctx = kw.get("_context", {})
+            # Detectar API: 1 arg = nueva (status), 2 args = antigua (doc, status)
+            if len(args) == 1:
+                status = args[0]
+                doc = ctx if isinstance(ctx, dict) else {}
+            elif len(args) == 2:
+                doc = args[0] if isinstance(args[0], dict) else {}
+                status = args[1]
+            else:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": "doc_has_status requires 1 or 2 positional args"},
+                    source="doc_has_status",
+                )
             ok = status in doc.get("statuses", [])
             return PredicateResult(
                 truth=Truth.TRUE if ok else Truth.FALSE,
@@ -331,12 +375,27 @@ class SocraticEngine:
             )
 
         @self.register("ctx_has")
-        def ctx_has(ctx, key: str, **kw) -> PredicateResult:
+        def ctx_has(*args, **kw) -> PredicateResult:
             """¿El contexto provee la clave? — el GUARDIÁN del trivaluado para
             shells. Si el contexto carece de la clave (p.ej. un doc sin TYPE
             leíble), la respuesta es UNKNOWN (no se pudo decidir), NO FALSE:
             el shell debe enrutar a '?' visible (R9), no al else_home
-            silencioso. Esta es la frontera R10: sin dato no hay evidencia."""
+            silencioso. Esta es la frontera R10: sin dato no hay evidencia.
+            v0.2.5: soporta API nueva (key) y antigua ($ctx, key)."""
+            ctx = kw.get("_context", {})
+            # Detectar API: 1 arg = nueva (key), 2 args = antigua ($ctx, key)
+            if len(args) == 1:
+                key = args[0]
+            elif len(args) == 2:
+                # API antigua: primer arg es $ctx resuelto (dict), segundo es key
+                ctx = args[0] if isinstance(args[0], dict) else ctx
+                key = args[1]
+            else:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": "ctx_has requires 1 or 2 positional args"},
+                    source="ctx_has",
+                )
             if not isinstance(ctx, dict) or key not in ctx or ctx[key] in (None, ""):
                 return PredicateResult(
                     truth=Truth.UNKNOWN, certified=False,
@@ -556,8 +615,8 @@ class SocraticEngine:
         resolved_args = [_resolve(a) for a in resolved_args]
         resolved_kwargs = {k: _resolve(v) for k, v in resolved_kwargs.items()}
 
-        # Inyectar contexto si se solicita explícitamente
-        if node.get("inject_context", False):
+        # Inyectar contexto: siempre o si se solicita explícitamente (v0.2.5)
+        if self.inject_context_always or node.get("inject_context", False):
             resolved_kwargs["_context"] = ctx
 
         # Ejecutar predicado

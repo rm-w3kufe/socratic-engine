@@ -15,12 +15,13 @@ u otro motor puede registrar los suyos, pero solo la evidencia estructural
 certifica (R10: el LLM opina, no certifica).
 
 Uso:
-    from socratic_engine import SocraticEngine, Truth, tree_home
+    from socratic_engine import SocraticEngine, Truth, TreeExecutor
     eng = SocraticEngine()
-    ev = eng.evaluate({"op": "AND", "children": [
+    executor = TreeExecutor(eng)
+    result = executor.execute({"op": "AND", "children": [
         {"predicate": "type_prefix", "args": ["$type", "VSL-LANG-"]},
     ]}, {"type": "VSL-LANG-GATES-v1.0"})
-    # ev.truth == Truth.TRUE, ev.certified == True
+    # result.truth == Truth.TRUE, result.certified == True
 
 CLI:
     socratic-engine eval-tree <tree.vsm|tree.json> [--context <json>] [--doc-type <TYPE>]
@@ -39,6 +40,8 @@ from .engine import (
 )
 from .tree import (
     SocraticTreeBuilder,
+    TreeExecutor,
+    load_tree,
     parse_socratic_block,
     tree_home,
 )
@@ -50,10 +53,12 @@ __all__ = [
     "PredicateResult",
     "SocraticEngine",
     "SocraticTreeBuilder",
+    "TreeExecutor",
     "Truth",
     "find_failure_traces",
+    "load_tree",
     "parse_socratic_block",
     "tree_home",
 ]
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"

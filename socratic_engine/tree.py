@@ -7,16 +7,20 @@ socratic_engine.tree — constructor seguro de árboles + parser VSL + tree_home
   AND/OR/NOT, kwargs, homes) sobre bloques socratic(...) declarados.
 - tree_home: evalúa un árbol contra el TYPE de un doc y retorna el home
   del primer hijo TRUE, o else_home, o None.
+- load_tree: carga árbol desde archivo (.vsm o .json).
+- TreeExecutor: wrapper que inyecta contexto y ejecuta árboles.
 
 SEMÁNTICA EPISTEMOLÓGICA: si un hijo responde UNKNOWN (no se pudo decidir),
 NO se enruta al else_home silencioso — se retorna None ('?' visible, R9:
 no conceder silenciosamente). Sin sujeto no hay juicio.
 """
 
+import json
 import re
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
-from .engine import SocraticEngine
+from .engine import Evaluation, SocraticEngine
 
 class SocraticTreeBuilder:
     """
@@ -251,4 +255,115 @@ def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,
     if saw_unknown:
         return None  # '?' visible — no inventar, no conceder silenciosamente
     return tree.get("else_home")
+
+
+# ── load_tree: carga árbol desde archivo (.vsm o .json) ─────────────────────
+
+def load_tree(path: Union[str, Path]) -> Optional[dict]:
+    """Carga un árbol desde un archivo .vsm (formato VSL) o .json.
+    
+    Para archivos .vsm, busca un bloque socratic(...) y lo parsea.
+    Para archivos .json, parsea directamente como JSON.
+    
+    Retorna None si no se puede cargar el árbol.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    
+    content = path.read_text(encoding="utf-8")
+    
+    if path.suffix == ".json":
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return None
+    else:
+        # .vsm or other text format
+        return parse_socratic_block(content)
+
+
+# ── TreeExecutor: wrapper para ejecución de árboles con contexto ────────────
+
+class TreeExecutor:
+    """Wrapper para ejecución de árboles con inyección automática de contexto.
+    
+    v0.2.5: Facilita la ejecución de árboles con contexto compartido,
+    validación previa y diagnóstico automático.
+    
+    Uso:
+        executor = TreeExecutor(engine)
+        result = executor.execute(tree, {"type": "VSL-LANG-01"})
+        # result.truth, result.certified, result.explain()
+    """
+    
+    def __init__(self, engine: SocraticEngine):
+        self.engine = engine
+        self.builder = SocraticTreeBuilder(engine)
+    
+    def execute(
+        self,
+        tree: Union[dict, str, Path],
+        context: Optional[Dict[str, Any]] = None,
+        *,
+        validate: bool = True,
+    ) -> Evaluation:
+        """Ejecuta un árbol con el contexto dado.
+        
+        Args:
+            tree: Árbol como dict, JSON string, o Path a archivo
+            context: Contexto de ejecución (type, content, etc.)
+            validate: Si True, valida el árbol antes de ejecutar
+            
+        Returns:
+            Evaluation con truth, certified, evidence, explain()
+        """
+        # Cargar árbol si es string o Path
+        if isinstance(tree, (str, Path)):
+            loaded = load_tree(tree)
+            if loaded is None:
+                raise ValueError(f"No se pudo cargar árbol desde: {tree}")
+            tree = loaded
+        
+        # Validar si se solicita
+        if validate:
+            self.builder.build(tree)  # Lanza ValueError si es inválido
+        
+        # Ejecutar con contexto
+        return self.engine.evaluate(tree, context or {})
+    
+    def execute_with_diagnosis(
+        self,
+        tree: Union[dict, str, Path],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Ejecuta un árbol y retorna resultado con diagnóstico.
+        
+        Retorna dict con:
+            - truth: Truth value
+            - certified: bool
+            - explain: str (human-readable explanation)
+            - diagnose: list of FailureTrace (if not certified)
+        """
+        evaluation = self.execute(tree, context)
+        
+        result = {
+            "truth": evaluation.truth.name,
+            "certified": evaluation.certified,
+            "is_true": evaluation.is_true,
+            "is_false": evaluation.is_false,
+            "is_unknown": evaluation.is_unknown,
+            "explain": evaluation.explain(),
+            "evidence": evaluation.evidence,
+        }
+        
+        # Agregar diagnóstico si no está certificado
+        if not evaluation.certified:
+            result["diagnose"] = [
+                str(f) for f in self.engine.diagnose(tree, context or {})
+            ]
+        else:
+            result["diagnose"] = []
+        
+        return result
 
