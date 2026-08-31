@@ -961,8 +961,46 @@ The important boundary remains the same:
 | `socratic-engine` | Reasoning | "What follows from these premises?" |
 | `vsf-rsi` | Learning | "What should we remember for next time?" |
 
+#### Integration by platform
+
+**OpenCode** — add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "socratic-engine": {
+      "type": "local",
+      "command": ["python3", "/path/to/socratic_mcp_with_bridge.py"]
+    }
+  }
+}
+```
+
+**Claude Code** — add to `CLAUDE.md`:
+
+```markdown
+## Tools
+- `socratic_engine.evaluate(tree, context)` — evaluate decisions
+```
+
+**Any Python agent**:
+
 ```python
-# Full integration pattern
+from socratic_engine import SocraticEngine
+engine = SocraticEngine()
+result = engine.evaluate(tree, context)
+```
+
+**Human CLI**:
+
+```bash
+pip install socratic-engine
+python -m socratic_engine evaluate tree.json --context ctx.json
+```
+
+#### Full pattern
+
+```python
 from socratic_engine import SocraticEngine
 from state_canon import StateCanon
 from vsf_rsi.scenario_memory import record
