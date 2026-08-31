@@ -937,11 +937,51 @@ Together they can form a larger agent-governance loop:
                  │
                  ▼
              decision
+                 │
+                 ▼
+            vsf-rsi
+                 │
+         learned pattern
+                 │
+                 ▼
+          future improvement
 ```
 
 The important boundary remains the same:
 
 > **The thing that produces a claim should not be the sole authority that certifies the claim.**
+
+### Three-tool integration
+
+`socratic-engine` is the reasoning substrate. Combined with `state-canon` and `vsf-rsi`:
+
+| Tool | Role | Question it answers |
+|------|------|---------------------|
+| `state-canon` | Ground truth | "What is actually true?" |
+| `socratic-engine` | Reasoning | "What follows from these premises?" |
+| `vsf-rsi` | Learning | "What should we remember for next time?" |
+
+```python
+# Full integration pattern
+from socratic_engine import SocraticEngine
+from state_canon import StateCanon
+from vsf_rsi.scenario_memory import record
+
+# 1. Get ground truth
+canon = StateCanon()
+state = canon.query("services", {"name": "api"})
+
+# 2. Evaluate decision
+engine = SocraticEngine()
+result = engine.evaluate(tree, {"state": state})
+
+# 3. Learn from outcome
+record({
+    "fault_signature": "api_timeout",
+    "decision": "increase_timeout",
+    "outcome": "success" if result.certified else "failure"
+})
+```
 
 ---
 
