@@ -799,46 +799,17 @@ inline in the source).
 (includes integration tests with `state-canon`, available when that
 package is installed or reachable at `~/state-canon-mcp`)
 
-### Releases (GitHub ↔ PyPI sync)
+### Releases
 
-The release pipeline is automated via GitHub Actions
-([`.github/workflows/release.yml`](./.github/workflows/release.yml)),
-triggered by a tag. To ship a new version:
+Releases are automated via GitHub Actions, triggered by a tag. The workflow verifies version sync across `pyproject.toml`, `__init__.py`, `mcp_server.py`, and tests before publishing to PyPI.
 
 ```bash
-# 1. Bump the version in ALL four places (must match exactly):
-#    pyproject.toml  → version = "X.Y.Z"
-#    socratic_engine/__init__.py → __version__ = "X.Y.Z"
-#    socratic_engine/mcp_server.py → serverInfo version
-#    tests/test_mcp_server.py → the assert string
-# 2. Update README status + ROADMAP, commit, push to main
-git commit -am "release: vX.Y.Z — <what changed>"
-git push origin main
-
-# 3. Tag and push — the workflow verifies tag ↔ pyproject ↔ __init__
-#    match, runs the full suite, checks metadata (Apache-2.0 only),
-#    publishes to PyPI, and creates the GitHub Release.
+# Ship a new version:
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Prerequisites (one-time):
-- `PYPI_TOKEN` secret configured in
-  **GitHub → Settings → Secrets and variables → Actions**
-  (token from https://pypi.org/manage/account/token/)
-- workflow permissions: `contents: write` (set in the workflow file)
-
-The workflow FAILS loudly (it does not publish) if:
-- the tag version ≠ pyproject version ≠ `__init__.__version__`
-- the test suite or coverage gate fails
-- the wheel metadata contains anything other than Apache-2.0
-  (guard against the MIT-classifier regression that hit 0.2.2)
-
-Validated end-to-end 2026-08-27 (tag `v0.2.5` test run):
-sync guard ✓ → suite ✓ → build ✓ → metadata guard ✓ → publish reached
-PyPI with the token authenticated (server answered `400 File already
-exists` for the intentionally-republished version — a bad token would
-have answered 401/403, not 400).
+See [`.github/workflows/release.yml`](./.github/workflows/release.yml) for details.
 
 ---
 
@@ -1131,48 +1102,12 @@ Its purpose is narrower:
 
 ## Roadmap
 
-### v0.1.x — core
+See **[ROADMAP.md](./ROADMAP.md)** for the full development history and future plans.
 
-- [x] trivalent logic
-- [x] truth / certification separation
-- [x] recursive evaluation
-- [x] inverse diagnostic trace
-- [x] safe tree builder
-- [x] VSL recursive tree parser
-- [x] CLI
-- [x] MCP bridge
-- [x] deterministic built-in predicates
-- [x] unit tests
+### Current status
 
-### v0.2.x — maturation
-
-- [x] CI workflow (pytest 3.10–3.12 + coverage + CLI smoke + MCP job)
-- [x] coverage > 90% (now 100%; CI gates at 90%)
-- [x] integration tests with `state-canon`
-- [x] performance benchmarks
-- [x] richer examples and architecture documentation
-- [x] dialectical operator for legitimate contradictions
-- [x] temporal / pragmatic predicates
-- [x] caching and rate limiting for expensive predicates
-- [x] published on PyPI (v0.2.0 → v0.2.5; bridge + ejemplos desde 0.2.2; license metadata Apache-only desde 0.2.3)
-- [x] official state-canon bridge + end-to-end examples (Claude Code, OpenCode)
-- [x] multi-bridge: route canon_* predicates to multiple providers by domain
-- [x] VsmDocProvider: VSM documentation as queryable records
-- [x] config-driven provider loading (bridge_config.json)
-- [x] provider health tracking (3-failure threshold → UNKNOWN)
-- [x] routing observability (provider, domain, latency, record count in evidence)
-- [x] semantic simplification: NOT flattening, contradiction/tautology, dedup, absorption
-- [x] short-circuit evaluation (AND stops at first FALSE, OR at first certified TRUE)
-- [x] tree DoS prevention (depth ≤ 100, nodes ≤ 10,000)
-- [x] 382-test suite + 46 adversarial tests (6 categories)
-
-### v0.3.x — formal extension
-
-- [x] DIALECTICAL_AND — certified contradiction (exists since v0.1)
-- [ ] paraconsistent logic (full: beyond pairwise contradiction)
-- [ ] contextual / frame semantics (hermeneutica: meaning from context)
-- [ ] stakeholder participation graphs (discursive ethics)
-- [ ] formal VSM → Socratic Engine derivation
+- **v0.2.5** — published on PyPI (multi-bridge, health tracking, semantic simplification, 382 tests)
+- **v0.3.x** — paraconsistent logic, frame semantics, stakeholder graphs
 
 The roadmap is intentionally open: the next features should be driven by failures observed in the experimental programme, not by feature accumulation.
 
