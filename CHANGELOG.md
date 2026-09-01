@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### 🔴 Critical Fixes
 - **enforce_limits default changed to True** — Tree depth/node limits are now enabled by default. Callers that need to evaluate deep trees must explicitly pass `enforce_limits=False`. This prevents `RecursionError` crashes from pathological trees.
 - **Cycle detection added** — Tracks visited nodes via `id()` to detect circular references. Uses `_visited` set that copies per-branch to allow shared subtrees while still catching real cycles.
-- **Predicate error wrapping** — Exceptions from user predicates are now wrapped in `RuntimeError` with context (predicate name, args, kwargs) for better debugging.
+- **Predicate error wrapping** — Exceptions from user predicates are now wrapped in `RuntimeError` with context (predicate name, args, kwargs) for better debugging. System errors (`RecursionError`, `MemoryError`, `KeyboardInterrupt`, `SystemExit`) propagate unwrapped.
 
 #### 🟡 Robustness Improvements
 - **XOR arity validation** — XOR now requires exactly 2 children (consistent with NOT and IMPLIES). Previously accepted n-ary XOR without validation.
