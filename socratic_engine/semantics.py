@@ -47,7 +47,7 @@ def simplify(node: Any) -> Any:
         node = _dedup_children(node)
         if not isinstance(node, dict):
             # Dedup collapsed to a single non-dict child (e.g., boolean literal)
-            return {"_resolved": True, "truth": bool(node)}
+            return bool(node)
         op = node.get("op")  # re-read after dedup
 
         # 4. Absorption check
@@ -112,9 +112,9 @@ def detect_contradiction(node: dict) -> dict | None:
         for j in range(i + 1, len(children)):
             if _is_negation_pair(children[i], children[j]):
                 if op == "AND":
-                    return {"_resolved": True, "truth": False}
+                    return False
                 else:  # OR
-                    return {"_resolved": True, "truth": True}
+                    return True
 
     return None
 
@@ -166,6 +166,13 @@ def _dedup_children(node: dict) -> dict:
 # ── Pattern 4: Absorption ─────────────────────────────────────
 
 
+
+def _propagate_context(parent: dict, child: Any) -> Any:
+    """If parent had inject_context, propagate to child dict."""
+    if isinstance(child, dict) and parent.get("inject_context"):
+        return {**child, "inject_context": True}
+    return child
+
 def detect_absorption(node: dict) -> dict | None:
     """AND(A, OR(A, B)) -> A.  OR(A, AND(A, B)) -> A.
     Returns simplified node or None."""
@@ -183,7 +190,7 @@ def detect_absorption(node: dict) -> dict | None:
                         continue
                     if any(structural_equal(sibling, oc) for oc in or_children):
                         # sibling is absorbed: AND(sibling, OR(sibling, ...)) -> sibling
-                        return {"_resolved": True, "truth": _evaluate_literal(sibling)}
+                        return _propagate_context(node, sibling)  # absorption: AND(A, OR(A,...)) → A
 
     if op == "OR":
         # Check if any child is an AND containing another child
@@ -194,7 +201,7 @@ def detect_absorption(node: dict) -> dict | None:
                     if i == j:
                         continue
                     if any(structural_equal(sibling, ac) for ac in and_children):
-                        return {"_resolved": True, "truth": _evaluate_literal(sibling)}
+                        return _propagate_context(node, sibling)  # absorption: AND(A, OR(A,...)) → A
 
     return None
 

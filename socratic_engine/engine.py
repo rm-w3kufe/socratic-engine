@@ -704,6 +704,13 @@ class SocraticEngine:
 
         children_nodes = node.get("children", [])
 
+        # Propagate inject_context from parent to children
+        if node.get("inject_context", False):
+            children_nodes = [
+                {**child, "inject_context": True} if isinstance(child, dict) else child
+                for child in children_nodes
+            ]
+
         # Short-circuit evaluation for AND/OR (semantic optimization)
         if op == "AND":
             children = self._evaluate_short_circuit(children_nodes, ctx,
