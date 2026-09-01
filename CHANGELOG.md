@@ -5,7 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.5] - 2026-08-27
+## [0.2.8] - 2026-09-01
+
+### Added
+- **engine_contract.py** — `SocraticEngineProtocol` and `EvaluationProtocol` define explicit public API between socratic-engine and vsf-rsi
+- **check_engine_compatibility()** — validates engine meets contract requirements
+- 18 protocol tests in `tests/test_engine_contract.py`
+
+## [0.2.7] - 2026-09-01
+
+### Fixed
+- **_TreeLimitCounter bypass fix** — replaced `_node_count: int` with mutable counter shared by reference. Fixes two bypass bugs:
+  - Bug 1: `_evaluate_predicate._maybe_eval` didn't forward limits to nested args
+  - Bug 2: `_node_count` passed by value across siblings, not accumulated
+- 11 regression tests in `tests/test_enforce_limits.py`
+- Engine coverage: 94% → 96%
+
+## [0.2.6] - 2026-08-31
 
 ### Fixed
 - **ctx_has predicate**: Now supports both old API (`ctx_has(ctx, key)`) and new API (`ctx_has(key)`). Context is auto-injected via `_context` kwarg.

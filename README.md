@@ -12,7 +12,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.5 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K), caching, rate limiting, CI (pytest 3.10–3.12 + coverage gate at 90%), 395-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.8 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K via `_TreeLimitCounter`), caching, rate limiting, engine contract protocols (`SocraticEngineProtocol`, `EvaluationProtocol`), CI (pytest 3.10–3.12 + coverage gate at 90%), 479-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -758,7 +758,7 @@ This makes the same engine usable from:
 
 ## Install
 
-### From PyPI (v0.2.5)
+### From PyPI (v0.2.8)
 
 ```bash
 pip install socratic-engine
@@ -1106,7 +1106,8 @@ See **[ROADMAP.md](./ROADMAP.md)** for the full development history and future p
 
 ### Current status
 
-- **v0.2.5** — published on PyPI (multi-bridge, health tracking, semantic simplification, 382 tests)
+- **v0.2.8** — published on PyPI (engine contract protocols, `_TreeLimitCounter` bypass fix, 479 tests)
+- **v0.2.7** — `_TreeLimitCounter` bypass fix, 11 regression tests
 - **v0.3.x** — paraconsistent logic, frame semantics, stakeholder graphs
 
 The roadmap is intentionally open: the next features should be driven by failures observed in the experimental programme, not by feature accumulation.
