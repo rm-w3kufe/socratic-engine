@@ -1189,29 +1189,17 @@ The roadmap is intentionally open: the next features should be driven by failure
 
 ---
 
-## Lineage
+## Lineage & philosophy
 
-`socratic-engine` was extracted from the broader VSM/VSF governance work as a standalone reasoning component.
-
-Its role is deliberately narrower than the surrounding system:
-
-```text
-VSM / VSF
-   │
-   ├── state and governance
-   │
-   ├── canonical observation
-   │
-   └── recursive epistemic evaluation
-                     │
-                     ▼
-              socratic-engine
-```
-
-The extraction is intentional: the recursive evaluation contract is useful independently of any single domain, agent framework, or language model.
-
----
+Built on Stafford Beer's **Viable System Model** and the **Cybersyn** project (Chile, 1971) — a system is
+viable when it can be *described*, *governed*, and *audited*. "Don't trust, verify" isn't a slogan here;
+it's the reconciler and the verify-at-every-boundary discipline made mechanical. Community-first, and
+deliberately **from the Global South** — the heir to Cybersyn's bet that good cybernetics serves people.
 
 ## License
 
-Code: **Apache-2.0** — see [LICENSE](./LICENSE).
+Code: **Apache-2.0** ([LICENSE](./LICENSE)) · Docs: **CC-BY-4.0**.
+
+This module is deliberately more permissive than the AGPL core it was extracted from — it is meant to be
+adopted, embedded, and improved by the community. Improvements can flow back; the module stays clean of
+AGPL code by construction.
