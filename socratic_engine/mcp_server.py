@@ -10,6 +10,11 @@ Exposes the socratic-engine surface over the Model Context Protocol:
                         registered predicates → ok/errors (R10.1: the LLM
                         proposes, the engine validates, never certifies)
 
+RSI Integration (optional):
+    If vsf-rsi is installed, the MCP server automatically wraps the engine
+    with RSIObserver for metrics tracking, threshold drift, and pattern
+    detection. Set RSI_ENABLED=0 to disable.
+
 Run:
   python3 -m socratic_engine.mcp_server
   # or with the optional extra installed:
@@ -18,14 +23,32 @@ Run:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+logger = logging.getLogger("socratic_engine.mcp")
+
 from .engine import SocraticEngine, Truth
 from .semantics import simplify
 from .tree import SocraticTreeBuilder, parse_socratic_block
+
+# ── RSI Integration (optional) ──────────────────────────────────────
+# If vsf-rsi is installed, wrap engine with RSIObserver for autonomous
+# metrics tracking, threshold drift, and pattern detection.
+_RSI_ENABLED = os.environ.get("RSI_ENABLED", "1") != "0"
+_RSIObserver = None
+_RSIMode = None
+
+if _RSI_ENABLED:
+    try:
+        from vsf_rsi.rsi_observer import RSIObserver, RSIMode as _RSIModeEnum
+        _RSIObserver = RSIObserver
+        _RSIMode = _RSIModeEnum
+    except ImportError:
+        pass  # vsf-rsi not installed — run without RSI
 
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -105,6 +128,21 @@ class SocraticMCP:
         self.provider = provider
         self.bridge = None
         self._multi_bridge = None
+
+        # ── RSI Observer (optional, autonomous L1/L2) ──────────────
+        # Wraps engine.evaluate() for metrics tracking + threshold drift.
+        # Mode SAFE = parameter_drift only (no capability_extension).
+        self.observer = None
+        if _RSIObserver is not None:
+            try:
+                self.observer = _RSIObserver(
+                    self.engine,
+                    mode=_RSIMode.SAFE.value if _RSIMode else "safe",
+                )
+                logger.info("RSI Observer enabled: mode=safe (L1 parameter_drift)")
+            except Exception as e:
+                logger.warning(f"RSI Observer init failed (disabled): {e}")
+                self.observer = None
 
         # --- bridge setup ---
         if multi_bridge is not None:
@@ -231,7 +269,12 @@ class SocraticMCP:
                 context=ctx.copy(),
             )
         else:
-            ev = self.engine.evaluate(simplified, ctx)
+            # Use RSI Observer if available (auto-tracks metrics + threshold drift)
+            # Falls back to bare engine if vsf-rsi not installed
+            if self.observer is not None:
+                ev = self.observer.evaluate(simplified, ctx)
+            else:
+                ev = self.engine.evaluate(simplified, ctx)
 
         # Use original parsed tree for diagnose (simplified may be a marker dict)
         diagnose_tree = parsed if isinstance(simplified, dict) and simplified.get("_resolved") else simplified
