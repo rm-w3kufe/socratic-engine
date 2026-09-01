@@ -547,8 +547,27 @@ class SocraticEngine:
         self,
         node: Any,
         context: Optional[Dict[str, Any]] = None,
+        enforce_limits: bool = False,
+        _depth: int = 0,
+        _node_count: int = 0,
     ) -> Evaluation:
         ctx = context or {}
+
+        # --- TREE LIMITS (opt-in via enforce_limits) ---
+        if enforce_limits:
+            MAX_DEPTH = 100
+            MAX_NODES = 10000
+            _node_count += 1
+            if _node_count > MAX_NODES:
+                raise ValueError(
+                    f"Tree has >{MAX_NODES} nodes — refusing to evaluate "
+                    f"(enforce_limits=True). Use a smaller tree."
+                )
+            if _depth > MAX_DEPTH:
+                raise ValueError(
+                    f"Tree depth >{MAX_DEPTH} — refusing to evaluate "
+                    f"(enforce_limits=True). Use a flatter tree."
+                )
 
         # --- CASO BASE: booleano literal ---
         if isinstance(node, bool):
@@ -565,7 +584,12 @@ class SocraticEngine:
 
         # --- OPERADOR: composición lógica recursiva ---
         if isinstance(node, dict) and "op" in node:
-            return self._evaluate_operator(node, ctx)
+            return self._evaluate_operator(
+                node, ctx,
+                enforce_limits=enforce_limits,
+                _depth=_depth + 1,
+                _node_count=_node_count,
+            )
 
         raise ValueError(
             f"Nodo inválido: debe ser bool, o dict con 'predicate'/'op'. Recibido: {node}"
@@ -657,6 +681,9 @@ class SocraticEngine:
         children_nodes: List[Any],
         ctx: Dict[str, Any],
         stop_on: Truth,
+        enforce_limits: bool = False,
+        _depth: int = 0,
+        _node_count: int = 0,
     ) -> List[Evaluation]:
         """Evaluate children lazily, stopping on a DECISIVE result.
 
@@ -670,7 +697,10 @@ class SocraticEngine:
         """
         children: List[Evaluation] = []
         for child_node in children_nodes:
-            ev = self.evaluate(child_node, ctx)
+            ev = self.evaluate(child_node, ctx,
+                              enforce_limits=enforce_limits,
+                              _depth=_depth,
+                              _node_count=_node_count)
             children.append(ev)
 
             if stop_on == Truth.FALSE:
@@ -697,6 +727,9 @@ class SocraticEngine:
         self,
         node: Dict[str, Any],
         ctx: Dict[str, Any],
+        enforce_limits: bool = False,
+        _depth: int = 0,
+        _node_count: int = 0,
     ) -> Evaluation:
         op = node["op"].upper()
         if op not in self.OPERATORS:
@@ -714,12 +747,24 @@ class SocraticEngine:
         # Short-circuit evaluation for AND/OR (semantic optimization)
         if op == "AND":
             children = self._evaluate_short_circuit(children_nodes, ctx,
-                                                    stop_on=Truth.FALSE)
+                                                    stop_on=Truth.FALSE,
+                                                    enforce_limits=enforce_limits,
+                                                    _depth=_depth,
+                                                    _node_count=_node_count)
         elif op == "OR":
             children = self._evaluate_short_circuit(children_nodes, ctx,
-                                                    stop_on=Truth.TRUE)
+                                                    stop_on=Truth.TRUE,
+                                                    enforce_limits=enforce_limits,
+                                                    _depth=_depth,
+                                                    _node_count=_node_count)
         else:
-            children = [self.evaluate(child, ctx) for child in children_nodes]
+            children = [
+                self.evaluate(child, ctx,
+                             enforce_limits=enforce_limits,
+                             _depth=_depth,
+                             _node_count=_node_count)
+                for child in children_nodes
+            ]
 
         truth = self._apply_operator(op, children)
 
