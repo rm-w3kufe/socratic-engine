@@ -61,6 +61,13 @@
 - [x] 11 regression tests in tests/test_enforce_limits.py
 - [x] engine.py coverage: 94% → 96%
 
+## ✅ v0.2.8 — Engine Contract (Protocol)
+- [x] SocraticEngineProtocol: explicit public API for cross-package consumers
+- [x] EvaluationProtocol: what vsf-rsi reads from results
+- [x] check_engine_compatibility(): runtime feature detection + warnings
+- [x] 18 tests in tests/test_engine_contract.py
+- [x] Backward-compatible: **kwargs in Protocol, old engines still work
+
 ## 🚀 v0.3.0 — Extensión Formal
 - [x] DIALECTICAL_AND — contradicción certificada (desde v0.1)
 - [ ] Lógica paraconsistente (más allá de contradicción por pares)
