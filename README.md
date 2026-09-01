@@ -758,7 +758,7 @@ This makes the same engine usable from:
 
 ## Install
 
-### From PyPI (v0.2.8)
+### From PyPI (v0.2.9)
 
 ```bash
 pip install socratic-engine
