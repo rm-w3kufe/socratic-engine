@@ -710,6 +710,9 @@ class SocraticEngine:
         # Ejecutar predicado con manejo de errores
         try:
             raw_result = self.predicates[name](*resolved_args, **resolved_kwargs)
+        except (RecursionError, MemoryError, KeyboardInterrupt, SystemExit):
+            # System errors propagate unwrapped — they're not predicate bugs
+            raise
         except Exception as e:
             # Wrap predicate errors with context for better debugging
             raise RuntimeError(
