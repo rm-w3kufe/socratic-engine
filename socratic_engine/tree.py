@@ -226,8 +226,8 @@ def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,
         if "predicate" in node or "op" in node:
             try:
                 ev = engine.evaluate(node, ctx)
-            except (ValueError, KeyError):  # pragma: no cover — inalcanzable: evaluate del op padre ya validó todos los children; un child que lanza cae en el except del loop (L248), no aquí
-                return None  # pragma: no cover — inalcanzable: ver L225
+            except (ValueError, KeyError, RuntimeError):  # RuntimeError from predicate error wrapping
+                return None  # pragma: no cover — inalcanzable: evaluate del op padre ya validó todos los children; un child que lanza cae en el except del loop (L248), no aquí
             if ev.is_true and node.get("home"):
                 return node["home"]
             if ev.is_true and "op" in node:
@@ -250,7 +250,7 @@ def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,
                 continue
             if ev.is_unknown:
                 saw_unknown = True
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, RuntimeError):
             continue
     if saw_unknown:
         return None  # '?' visible — no inventar, no conceder silenciosamente

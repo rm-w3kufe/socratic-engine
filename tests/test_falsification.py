@@ -115,18 +115,18 @@ class TestRecursion:
 
     def test_depth_64(self, engine):
         tree = depthN(64)
-        r = engine.evaluate(tree, {"type": "X"})
+        r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
         assert r.is_true
 
     def test_depth_128(self, engine):
         """Límite práctico: Python default recursion limit ~1000."""
         tree = depthN(128)
-        r = engine.evaluate(tree, {"type": "X"})
+        r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
         assert r.is_true
 
     def test_depth_256(self, engine):
         tree = depthN(256)
-        r = engine.evaluate(tree, {"type": "X"})
+        r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
         assert r.is_true
 
     def test_depth_512(self, engine):
@@ -136,7 +136,7 @@ class TestRecursion:
         sys.setrecursionlimit(10000)
         try:
             tree = depthN(512)
-            r = engine.evaluate(tree, {"type": "X"})
+            r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
             assert r.is_true
         except RecursionError:
             pytest.skip("RecursionError at d=512 even with increased limit")
@@ -150,7 +150,7 @@ class TestRecursion:
         sys.setrecursionlimit(10000)
         try:
             tree = depthN(1024)
-            r = engine.evaluate(tree, {"type": "X"})
+            r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
             assert r.is_true
         except RecursionError:
             pytest.skip("RecursionError at d=1024")
@@ -1034,7 +1034,7 @@ class TestRealDepth:
     @pytest.mark.parametrize("depth", [1, 2, 4, 8, 16, 32, 64, 128, 256])
     def test_depths_up_to_256(self, engine, depth):
         tree = depthN(depth)
-        r = engine.evaluate(tree, {"type": "X"})
+        r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
         assert r.is_true
 
     def test_depth_512(self, engine):
@@ -1044,7 +1044,7 @@ class TestRealDepth:
         sys.setrecursionlimit(10000)
         try:
             tree = depthN(512)
-            r = engine.evaluate(tree, {"type": "X"})
+            r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
             assert r.is_true
         except RecursionError:
             pytest.skip("RecursionError at d=512")
@@ -1058,7 +1058,7 @@ class TestRealDepth:
         sys.setrecursionlimit(10000)
         try:
             tree = depthN(1024)
-            r = engine.evaluate(tree, {"type": "X"})
+            r = engine.evaluate(tree, {"type": "X"}, enforce_limits=False)
             assert r.is_true
         except RecursionError:
             pytest.skip("RecursionError at d=1024")

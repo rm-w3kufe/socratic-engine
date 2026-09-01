@@ -1002,7 +1002,10 @@ def test_xor_guilty_uncertified(engine):
     @engine.register("xt")
     def xt(**kw):
         return PredicateResult(truth=Truth.TRUE, certified=False)
-    tree = {"op": "XOR", "children": [{"predicate": "xt"}]}
+    @engine.register("xf")
+    def xf(**kw):
+        return PredicateResult(truth=Truth.FALSE, certified=True)
+    tree = {"op": "XOR", "children": [{"predicate": "xt"}, {"predicate": "xf"}]}
     ev = engine.evaluate(tree)
     assert not ev.certified
     traces = engine.diagnose(tree)

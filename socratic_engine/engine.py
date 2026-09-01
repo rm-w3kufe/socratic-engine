@@ -215,6 +215,17 @@ class SocraticEngine:
         Si la función está decorada con @cached, se envuelve con el cache
         del engine (TTL resuelto en el registro)."""
         def decorator(func: Predicate):
+            # Warn if overwriting existing predicate
+            if name in self.predicates:
+                import warnings
+                warnings.warn(
+                    f"Sobrescribiendo predicado existente '{name}'. "
+                    f"Esto puede ser intencional o un bug si se registra "
+                    f"accidentalmente un predicado con el mismo nombre.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            
             if getattr(func, "__socratic_cached__", False):
                 cache_ref = func.__socratic_cache_ref__ or self.cache
                 ttl = func.__socratic_ttl__
@@ -571,14 +582,15 @@ class SocraticEngine:
         self,
         node: Any,
         context: Optional[Dict[str, Any]] = None,
-        enforce_limits: bool = False,
+        enforce_limits: bool = True,
         _depth: int = 0,
         _node_count: int = 0,  # DEPRECATED: kept for backward compat, ignored when _limit_counter is set
         _limit_counter: Optional[_TreeLimitCounter] = None,
+        _visited: Optional[Set[int]] = None,
     ) -> Evaluation:
         ctx = context or {}
 
-        # --- TREE LIMITS (opt-in via enforce_limits) ---
+        # --- TREE LIMITS (enabled by default, can disable with enforce_limits=False) ---
         if enforce_limits:
             MAX_DEPTH = 100
             MAX_NODES = 10000
@@ -595,6 +607,18 @@ class SocraticEngine:
                     f"Tree depth >{MAX_DEPTH} — refusing to evaluate "
                     f"(enforce_limits=True). Use a flatter tree."
                 )
+            
+            # --- CYCLE DETECTION (only for dict nodes, not primitives) ---
+            if _visited is None:
+                _visited = set()
+            if isinstance(node, dict):
+                node_id = id(node)
+                if node_id in _visited:
+                    raise ValueError(
+                        f"Cycle detected: node at {node_id} already visited. "
+                        f"This indicates a circular reference in the tree."
+                    )
+                _visited.add(node_id)
 
         # --- CASO BASE: booleano literal ---
         if isinstance(node, bool):
@@ -610,7 +634,8 @@ class SocraticEngine:
             return self._evaluate_predicate(node, ctx,
                                             enforce_limits=enforce_limits,
                                             _depth=_depth,
-                                            _limit_counter=_limit_counter)
+                                            _limit_counter=_limit_counter,
+                                            _visited=_visited)
 
         # --- OPERADOR: composición lógica recursiva ---
         if isinstance(node, dict) and "op" in node:
@@ -619,6 +644,7 @@ class SocraticEngine:
                 enforce_limits=enforce_limits,
                 _depth=_depth + 1,
                 _limit_counter=_limit_counter,
+                _visited=_visited,
             )
 
         raise ValueError(
@@ -633,9 +659,10 @@ class SocraticEngine:
         self,
         node: Dict[str, Any],
         ctx: Dict[str, Any],
-        enforce_limits: bool = False,
+        enforce_limits: bool = True,
         _depth: int = 0,
         _limit_counter: Optional[_TreeLimitCounter] = None,
+        _visited: Optional[Set[int]] = None,
     ) -> Evaluation:
         name = node["predicate"]
         if name not in self.predicates:
@@ -653,7 +680,8 @@ class SocraticEngine:
                 return self.evaluate(v, ctx,
                                      enforce_limits=enforce_limits,
                                      _depth=_depth,
-                                     _limit_counter=_limit_counter).is_true
+                                     _limit_counter=_limit_counter,
+                                     _visited=_visited).is_true
             return v
 
         resolved_args = [_maybe_eval(arg) for arg in node.get("args", [])]
@@ -679,8 +707,15 @@ class SocraticEngine:
         if self.inject_context_always or node.get("inject_context", False):
             resolved_kwargs["_context"] = ctx
 
-        # Ejecutar predicado
-        raw_result = self.predicates[name](*resolved_args, **resolved_kwargs)
+        # Ejecutar predicado con manejo de errores
+        try:
+            raw_result = self.predicates[name](*resolved_args, **resolved_kwargs)
+        except Exception as e:
+            # Wrap predicate errors with context for better debugging
+            raise RuntimeError(
+                f"Error en predicado '{name}': {type(e).__name__}: {e}. "
+                f"Argumentos: args={resolved_args}, kwargs={resolved_kwargs}"
+            ) from e
 
         # Normalizar: bool → PredicateResult automático
         if isinstance(raw_result, bool):
@@ -717,9 +752,10 @@ class SocraticEngine:
         children_nodes: List[Any],
         ctx: Dict[str, Any],
         stop_on: Truth,
-        enforce_limits: bool = False,
+        enforce_limits: bool = True,
         _depth: int = 0,
         _limit_counter: Optional[_TreeLimitCounter] = None,
+        _visited: Optional[Set[int]] = None,
     ) -> List[Evaluation]:
         """Evaluate children lazily, stopping on a DECISIVE result.
 
@@ -733,10 +769,12 @@ class SocraticEngine:
         """
         children: List[Evaluation] = []
         for child_node in children_nodes:
+            # Copy _visited for each child to allow shared subtrees
             ev = self.evaluate(child_node, ctx,
                               enforce_limits=enforce_limits,
                               _depth=_depth,
-                              _limit_counter=_limit_counter)
+                              _limit_counter=_limit_counter,
+                              _visited=_visited.copy() if _visited else None)
             children.append(ev)
 
             if stop_on == Truth.FALSE:
@@ -763,9 +801,10 @@ class SocraticEngine:
         self,
         node: Dict[str, Any],
         ctx: Dict[str, Any],
-        enforce_limits: bool = False,
+        enforce_limits: bool = True,
         _depth: int = 0,
         _limit_counter: Optional[_TreeLimitCounter] = None,
+        _visited: Optional[Set[int]] = None,
     ) -> Evaluation:
         op = node["op"].upper()
         if op not in self.OPERATORS:
@@ -781,26 +820,44 @@ class SocraticEngine:
             ]
 
         # Short-circuit evaluation for AND/OR (semantic optimization)
+        # Note: we copy _visited for each child to allow shared subtrees
+        # (same dict used in multiple places) without false cycle detection
         if op == "AND":
             children = self._evaluate_short_circuit(children_nodes, ctx,
                                                     stop_on=Truth.FALSE,
                                                     enforce_limits=enforce_limits,
                                                     _depth=_depth,
-                                                    _limit_counter=_limit_counter)
+                                                    _limit_counter=_limit_counter,
+                                                    _visited=_visited.copy() if _visited else None)
         elif op == "OR":
             children = self._evaluate_short_circuit(children_nodes, ctx,
                                                     stop_on=Truth.TRUE,
                                                     enforce_limits=enforce_limits,
                                                     _depth=_depth,
-                                                    _limit_counter=_limit_counter)
+                                                    _limit_counter=_limit_counter,
+                                                    _visited=_visited.copy() if _visited else None)
         else:
             children = [
                 self.evaluate(child, ctx,
                              enforce_limits=enforce_limits,
                              _depth=_depth,
-                             _limit_counter=_limit_counter)
+                             _limit_counter=_limit_counter,
+                             _visited=_visited.copy() if _visited else None)
                 for child in children_nodes
             ]
+
+        # Validate arity for operators that require children
+        if not children_nodes:
+            if op in ("NOT", "IMPLIES", "XOR"):
+                raise ValueError(f"{op} requiere al menos un hijo")
+            # AND/OR with empty children: warn but allow (mathematical identity)
+            import warnings
+            warnings.warn(
+                f"{op} con 0 hijos — resultado es identidad lógica "
+                f"({'TRUE' if op == 'AND' else 'FALSE'}), pero probablemente es un bug",
+                UserWarning,
+                stacklevel=2,
+            )
 
         truth = self._apply_operator(op, children)
 
@@ -872,6 +929,8 @@ class SocraticEngine:
             return mapping[children[0].truth]
 
         if op == "XOR":
+            if len(children) != 2:
+                raise ValueError("XOR requiere exactamente dos hijos")
             if any(t == Truth.UNKNOWN for t in truths):
                 return Truth.UNKNOWN
             return Truth.TRUE if sum(t == Truth.TRUE for t in truths) == 1 else Truth.FALSE
