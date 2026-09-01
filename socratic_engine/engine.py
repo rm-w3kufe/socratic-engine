@@ -163,6 +163,30 @@ def cached(ttl: Optional[float] = None, cache: Optional[PredicateCache] = None):
 
 
 # ============================================================
+# TREE LIMIT COUNTER (mutable, shared by reference)
+# ============================================================
+
+class _TreeLimitCounter:
+    """Mutable counter shared by reference through recursive evaluation.
+
+    Replaces the old _node_count: int parameter which was passed by value,
+    causing two bypass bugs:
+    1. _evaluate_predicate._maybe_eval called self.evaluate() without
+       forwarding the count — deep trees in predicate args bypassed limits.
+    2. Each sibling in _evaluate_operator got the same starting count —
+       wide trees (many children) bypassed MAX_NODES.
+    """
+    __slots__ = ("count",)
+
+    def __init__(self, start: int = 0):
+        self.count = start
+
+    def increment(self) -> int:
+        self.count += 1
+        return self.count
+
+
+# ============================================================
 # SOCRATIC ENGINE (Fusionado)
 # ============================================================
 
@@ -549,7 +573,8 @@ class SocraticEngine:
         context: Optional[Dict[str, Any]] = None,
         enforce_limits: bool = False,
         _depth: int = 0,
-        _node_count: int = 0,
+        _node_count: int = 0,  # DEPRECATED: kept for backward compat, ignored when _limit_counter is set
+        _limit_counter: Optional[_TreeLimitCounter] = None,
     ) -> Evaluation:
         ctx = context or {}
 
@@ -557,8 +582,10 @@ class SocraticEngine:
         if enforce_limits:
             MAX_DEPTH = 100
             MAX_NODES = 10000
-            _node_count += 1
-            if _node_count > MAX_NODES:
+            if _limit_counter is None:
+                _limit_counter = _TreeLimitCounter(_node_count)
+            count = _limit_counter.increment()
+            if count > MAX_NODES:
                 raise ValueError(
                     f"Tree has >{MAX_NODES} nodes — refusing to evaluate "
                     f"(enforce_limits=True). Use a smaller tree."
@@ -580,7 +607,10 @@ class SocraticEngine:
 
         # --- PREDICADO: cuestionamiento atómico ---
         if isinstance(node, dict) and "predicate" in node:
-            return self._evaluate_predicate(node, ctx)
+            return self._evaluate_predicate(node, ctx,
+                                            enforce_limits=enforce_limits,
+                                            _depth=_depth,
+                                            _limit_counter=_limit_counter)
 
         # --- OPERADOR: composición lógica recursiva ---
         if isinstance(node, dict) and "op" in node:
@@ -588,7 +618,7 @@ class SocraticEngine:
                 node, ctx,
                 enforce_limits=enforce_limits,
                 _depth=_depth + 1,
-                _node_count=_node_count,
+                _limit_counter=_limit_counter,
             )
 
         raise ValueError(
@@ -603,6 +633,9 @@ class SocraticEngine:
         self,
         node: Dict[str, Any],
         ctx: Dict[str, Any],
+        enforce_limits: bool = False,
+        _depth: int = 0,
+        _limit_counter: Optional[_TreeLimitCounter] = None,
     ) -> Evaluation:
         name = node["predicate"]
         if name not in self.predicates:
@@ -617,7 +650,10 @@ class SocraticEngine:
         # (quickstart demo case 1, 2026-08-18).
         def _maybe_eval(v: Any) -> Any:
             if isinstance(v, dict) and ("predicate" in v or "op" in v):
-                return self.evaluate(v, ctx).is_true
+                return self.evaluate(v, ctx,
+                                     enforce_limits=enforce_limits,
+                                     _depth=_depth,
+                                     _limit_counter=_limit_counter).is_true
             return v
 
         resolved_args = [_maybe_eval(arg) for arg in node.get("args", [])]
@@ -683,7 +719,7 @@ class SocraticEngine:
         stop_on: Truth,
         enforce_limits: bool = False,
         _depth: int = 0,
-        _node_count: int = 0,
+        _limit_counter: Optional[_TreeLimitCounter] = None,
     ) -> List[Evaluation]:
         """Evaluate children lazily, stopping on a DECISIVE result.
 
@@ -700,7 +736,7 @@ class SocraticEngine:
             ev = self.evaluate(child_node, ctx,
                               enforce_limits=enforce_limits,
                               _depth=_depth,
-                              _node_count=_node_count)
+                              _limit_counter=_limit_counter)
             children.append(ev)
 
             if stop_on == Truth.FALSE:
@@ -729,7 +765,7 @@ class SocraticEngine:
         ctx: Dict[str, Any],
         enforce_limits: bool = False,
         _depth: int = 0,
-        _node_count: int = 0,
+        _limit_counter: Optional[_TreeLimitCounter] = None,
     ) -> Evaluation:
         op = node["op"].upper()
         if op not in self.OPERATORS:
@@ -750,19 +786,19 @@ class SocraticEngine:
                                                     stop_on=Truth.FALSE,
                                                     enforce_limits=enforce_limits,
                                                     _depth=_depth,
-                                                    _node_count=_node_count)
+                                                    _limit_counter=_limit_counter)
         elif op == "OR":
             children = self._evaluate_short_circuit(children_nodes, ctx,
                                                     stop_on=Truth.TRUE,
                                                     enforce_limits=enforce_limits,
                                                     _depth=_depth,
-                                                    _node_count=_node_count)
+                                                    _limit_counter=_limit_counter)
         else:
             children = [
                 self.evaluate(child, ctx,
                              enforce_limits=enforce_limits,
                              _depth=_depth,
-                             _node_count=_node_count)
+                             _limit_counter=_limit_counter)
                 for child in children_nodes
             ]
 

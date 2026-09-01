@@ -54,6 +54,13 @@
 - [x] engine._evaluate_operator propagates inject_context to children
 - [x] Dynamic predicate registration via @engine.register() decorator
 
+## ✅ v0.2.7 — enforce_limits bypass fixes
+- [x] _TreeLimitCounter: mutable counter shared by reference (replaces _node_count: int)
+- [x] Bug 1 fix: _evaluate_predicate._maybe_eval forwards enforce_limits to nested args
+- [x] Bug 2 fix: node count accumulates across siblings (not restart per child)
+- [x] 11 regression tests in tests/test_enforce_limits.py
+- [x] engine.py coverage: 94% → 96%
+
 ## 🚀 v0.3.0 — Extensión Formal
 - [x] DIALECTICAL_AND — contradicción certificada (desde v0.1)
 - [ ] Lógica paraconsistente (más allá de contradicción por pares)
