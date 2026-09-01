@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-09-01
+
+### Security (addressing independent audit findings)
+
+#### 🔴 Critical Fixes
+- **enforce_limits default changed to True** — Tree depth/node limits are now enabled by default. Callers that need to evaluate deep trees must explicitly pass `enforce_limits=False`. This prevents `RecursionError` crashes from pathological trees.
+- **Cycle detection added** — Tracks visited nodes via `id()` to detect circular references. Uses `_visited` set that copies per-branch to allow shared subtrees while still catching real cycles.
+- **Predicate error wrapping** — Exceptions from user predicates are now wrapped in `RuntimeError` with context (predicate name, args, kwargs) for better debugging.
+
+#### 🟡 Robustness Improvements
+- **XOR arity validation** — XOR now requires exactly 2 children (consistent with NOT and IMPLIES). Previously accepted n-ary XOR without validation.
+- **Empty AND/OR warning** — Emits `UserWarning` when AND/OR have 0 children. Mathematically valid (identity elements) but likely indicates a bug.
+- **Predicate overwrite warning** — Emits `UserWarning` when registering a predicate with a name that already exists. Prevents silent overwrites.
+
+### Changed
+- **Default behavior**: `enforce_limits=True` (was `False`)
+- **Error handling**: Predicate exceptions wrapped in `RuntimeError`
+- **Validation**: XOR, NOT, IMPLIES all validate arity
+
+### Migration Guide
+- If your code relies on `enforce_limits=False` being the default, you must now explicitly pass it:
+  ```python
+  # Before (implicit False)
+  engine.evaluate(tree)
+  
+  # After (explicit False if needed)
+  engine.evaluate(tree, enforce_limits=False)
+  ```
+
+### Test Updates
+- Updated `test_falsification.py` deep recursion tests to use `enforce_limits=False`
+- Updated `test_engine.py` XOR tests to use 2 children
+- All 479 socratic-engine tests pass
+- All 843 vsf-rsi tests pass (verified compatibility)
+
 ## [0.2.8] - 2026-09-01
 
 ### Added
