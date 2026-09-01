@@ -49,13 +49,13 @@ class TestSimplify:
         """Line 37-39: AND(P, NOT(P)) → _resolved FALSE."""
         tree = {"op": "AND", "children": [P, {"op": "NOT", "children": [P]}]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": False}
+        assert r is False
 
     def test_or_tautology_returns_marker(self):
         """Line 37-39: OR(P, NOT(P)) → _resolved TRUE."""
         tree = {"op": "OR", "children": [P, {"op": "NOT", "children": [P]}]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r is True
 
     def test_dedup_collapses_to_single_child(self):
         """Lines 47-50: AND(P, P) deduplicates to P (non-dict result)."""
@@ -68,23 +68,23 @@ class TestSimplify:
         """Lines 48-50: AND(True, True) deduplicates to True (non-dict)."""
         tree = {"op": "AND", "children": [True, True]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r is True
 
     def test_absorption_and_or(self):
-        """Lines 54-56: AND(P, OR(P, Q)) → absorption detected."""
+        """Lines 54-56: AND(P, OR(P, Q)) → absorption returns child node."""
         tree = {"op": "AND", "children": [
             P, {"op": "OR", "children": [P, Q]}
         ]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r == P  # Returns absorbed child node
 
     def test_absorption_or_and(self):
-        """Lines 54-56: OR(P, AND(P, Q)) → absorption detected."""
+        """Lines 54-56: OR(P, AND(P, Q)) → absorption returns child node."""
         tree = {"op": "OR", "children": [
             P, {"op": "AND", "children": [P, Q]}
         ]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r == P  # Returns absorbed child node
 
     def test_recheck_contradiction_after_simplification(self):
         """Lines 59-61: after dedup, contradiction may appear."""
@@ -93,7 +93,7 @@ class TestSimplify:
             P, {"op": "NOT", "children": [P]}, P
         ]}
         r = simplify(tree)
-        assert r == {"_resolved": True, "truth": False}
+        assert r is False
 
     def test_normal_and_passthrough(self):
         """AND with no patterns returns the tree with simplified children."""
@@ -207,14 +207,14 @@ class TestDetectContradiction:
         r = detect_contradiction({"op": "AND", "children": [
             P, {"op": "NOT", "children": [P]}
         ]})
-        assert r == {"_resolved": True, "truth": False}
+        assert r is False
 
     def test_or_tautology(self):
         """Lines 116-117: OR(A, NOT(A)) → TRUE."""
         r = detect_contradiction({"op": "OR", "children": [
             P, {"op": "NOT", "children": [P]}
         ]})
-        assert r == {"_resolved": True, "truth": True}
+        assert r is True
 
     def test_not_and_or(self):
         """Line 103-104: non-AND/OR → None."""
@@ -234,7 +234,7 @@ class TestDetectContradiction:
         r = detect_contradiction({"op": "AND", "children": [
             {"op": "NOT", "children": [P]}, P
         ]})
-        assert r == {"_resolved": True, "truth": False}
+        assert r is False
 
     def test_deep_contradiction(self):
         """Lines 130-131: nested tree contradiction."""
@@ -242,7 +242,7 @@ class TestDetectContradiction:
         r = detect_contradiction({"op": "AND", "children": [
             A, {"op": "NOT", "children": [A]}
         ]})
-        assert r == {"_resolved": True, "truth": False}
+        assert r is False
 
 
 # ── _is_negation_pair() ───────────────────────────────────────
@@ -327,20 +327,20 @@ class TestDedupChildren:
 
 class TestDetectAbsorption:
     def test_and_absorption(self):
-        """Lines 175-186: AND(A, OR(A, B)) → A."""
+        """Lines 175-186: AND(A, OR(A, B)) → A (returns child node)."""
         tree = {"op": "AND", "children": [
             P, {"op": "OR", "children": [P, Q]}
         ]}
         r = detect_absorption(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r == P  # Returns absorbed child node
 
     def test_or_absorption(self):
-        """Lines 188-197: OR(A, AND(A, B)) → A."""
+        """Lines 188-197: OR(A, AND(A, B)) → A (returns child node)."""
         tree = {"op": "OR", "children": [
             P, {"op": "AND", "children": [P, Q]}
         ]}
         r = detect_absorption(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r == P  # Returns absorbed child node
 
     def test_no_absorption(self):
         """No sibling in nested op → None."""
@@ -356,7 +356,7 @@ class TestDetectAbsorption:
             P, "not_a_dict", {"op": "OR", "children": [P, Q]}
         ]}
         r = detect_absorption(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r == P  # Returns absorbed child node
 
     def test_wrong_op(self):
         """XOR → None."""
@@ -369,7 +369,7 @@ class TestDetectAbsorption:
             True, {"op": "OR", "children": [True, Q]}
         ]}
         r = detect_absorption(tree)
-        assert r == {"_resolved": True, "truth": True}
+        assert r is True
 
 
 # ── _evaluate_literal() ───────────────────────────────────────
