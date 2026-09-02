@@ -789,7 +789,7 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-382 passed
+479 passed
 ```
 
 at 100% statement coverage (CI gates at 90%; uncovered lines are
@@ -830,11 +830,13 @@ socratic-engine/
 ├── socratic_engine/
 │   ├── __init__.py
 │   ├── engine.py           # trivalent evaluator + certification + diagnosis
-│   ├── tree.py             # builder + VSL parser + tree routing
+│   ├── tree.py             # builder + VSL parser + tree routing + TreeExecutor
 │   ├── cli.py              # command-line interface
 │   ├── mcp_server.py       # MCP / JSON-RPC bridge + rate limiter
 │   ├── multi_bridge.py     # multi-provider routing (canon_* by domain)
 │   ├── bridge_statecanon.py # official state-canon bridge (opt-in)
+│   ├── semantics.py        # semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption)
+│   ├── engine_contract.py  # SocraticEngineProtocol + EvaluationProtocol
 │   └── providers/
 │       ├── __init__.py
 │       └── vsm_doc.py      # VSM documentation filesystem provider
@@ -845,7 +847,12 @@ socratic-engine/
     ├── test_bridge_statecanon.py
     ├── test_multi_bridge.py
     ├── test_vsm_doc.py
-    └── test_state_canon_integration.py
+    ├── test_state_canon_integration.py
+    ├── test_enforce_limits.py
+    ├── test_engine_contract.py
+    ├── test_falsification.py
+    ├── test_recursion.py
+    └── test_semantics.py
 ```
 
 ---

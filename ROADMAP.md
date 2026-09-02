@@ -47,12 +47,16 @@
 - [x] 450 tests + 46 adversarial tests (6 categorías)
 - [x] Publicado: https://pypi.org/project/socratic-engine/0.2.4/
 
-## ✅ v0.2.6 — Integration Fixes
+## ✅ v0.2.6 — Integration Fixes + TreeExecutor
 - [x] simplify() returns bool/node instead of _resolved dict (gap fix)
 - [x] detect_contradiction() returns bool
 - [x] detect_absorption() returns child node + propagates inject_context
 - [x] engine._evaluate_operator propagates inject_context to children
 - [x] Dynamic predicate registration via @engine.register() decorator
+- [x] TreeExecutor class: wrapper for executing trees with context injection, validation, and diagnosis
+- [x] load_tree function: load trees from .vsm (VSL format) or .json files
+- [x] register_module method: register all predicates from an external module
+- [x] register_predicates_dict method: register a dictionary of predicates at runtime
 
 ## ✅ v0.2.7 — enforce_limits bypass fixes
 - [x] _TreeLimitCounter: mutable counter shared by reference (replaces _node_count: int)

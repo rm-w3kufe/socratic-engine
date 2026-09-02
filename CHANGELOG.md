@@ -73,7 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Backward compatible**: Old API for ctx_has and doc_has_status still works. New API is preferred.
-- **Version**: 0.2.4 → 0.2.5
 
 ### Technical Details
 - ctx_has signature: `(ctx, key)` → `(*args, **kw)` with auto-detection
