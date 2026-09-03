@@ -602,9 +602,9 @@ class SocraticEngine:
                     f"Tree has >{MAX_NODES} nodes — refusing to evaluate "
                     f"(enforce_limits=True). Use a smaller tree."
                 )
-            if _depth > MAX_DEPTH:
+            if _depth >= MAX_DEPTH:
                 raise ValueError(
-                    f"Tree depth >{MAX_DEPTH} — refusing to evaluate "
+                    f"Tree depth >={MAX_DEPTH} — refusing to evaluate "
                     f"(enforce_limits=True). Use a flatter tree."
                 )
             
