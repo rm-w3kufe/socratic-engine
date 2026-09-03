@@ -964,7 +964,12 @@ class SocraticEngine:
             return False  # pragma: no cover — inalcanzable: _evaluate_operator valida children no vacío antes
 
         if op == "AND":
-            return all(c.certified for c in children)
+            # Exclude short-circuited children from certification check:
+            # when AND stops on first FALSE, remaining children are
+            # UNKNOWN/certified=False from short_circuit — they were never
+            # evaluated, so their certification status is irrelevant.
+            evaluated = [c for c in children if c.source != "short_circuit"]
+            return all(c.certified for c in evaluated) if evaluated else False
 
         if op == "DIALECTICAL_AND":
             # Si hay conflicto decidido (mezcla TRUE+FALSE) y TODOS los hijos
