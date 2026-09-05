@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-09-05
+
+### Added
+- **ctx_equals(key, expected)** — Context predicate: checks if `ctx[key] == expected`. Supports 2-arg API (key, expected) and 3-arg legacy API ($ctx, key, expected). Returns TRUE/FALSE/UNKNOWN.
+- **ctx_contains(key, substring)** — Context predicate: checks if `ctx[key]` contains `substring` (for strings) or `element` (for lists). Supports substring matching and list membership.
+- **ctx_not_has(key)** — Context predicate: inverse of ctx_has. Returns TRUE if key is missing or empty.
+
+### Context Predicates (complete set)
+The engine now ships with 4 context predicates for tree-based evaluation:
+- `ctx_has` — key exists and is non-empty (v0.2.5)
+- `ctx_equals` — key equals expected value (NEW)
+- `ctx_contains` — value contains substring/element (NEW)
+- `ctx_not_has` — key is missing or empty (NEW)
+
 ## [0.2.9] - 2026-09-01
 
 ### Security (addressing independent audit findings)

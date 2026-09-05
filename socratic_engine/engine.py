@@ -441,6 +441,116 @@ class SocraticEngine:
                 evidence={"ctx": ctx, "key": key}, source="ctx_has",
             )
 
+        @self.register("ctx_equals")
+        def ctx_equals(*args, **kw) -> PredicateResult:
+            """¿El contexto tiene la clave con el valor esperado? — comparación
+            exacta de valores. Retorna TRUE si ctx[key] == expected, FALSE si
+            no coincide, UNKNOWN si falta la clave.
+            API: ctx_equals(key, expected) o ctx_equals($ctx, key, expected)."""
+            ctx = kw.get("_context", {})
+            if len(args) == 2:
+                key, expected = args[0], args[1]
+            elif len(args) == 3:
+                ctx = args[0] if isinstance(args[0], dict) else ctx
+                key, expected = args[1], args[2]
+            else:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": "ctx_equals requires 2 or 3 positional args"},
+                    source="ctx_equals",
+                )
+            if not isinstance(ctx, dict) or key not in ctx:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"missing_key": key}, source="ctx_equals",
+                )
+            actual = ctx[key]
+            if actual == expected:
+                return PredicateResult(
+                    truth=Truth.TRUE, certified=True,
+                    evidence={"key": key, "expected": expected, "actual": actual},
+                    source="ctx_equals",
+                )
+            return PredicateResult(
+                truth=Truth.FALSE, certified=True,
+                evidence={"key": key, "expected": expected, "actual": actual},
+                source="ctx_equals",
+            )
+
+        @self.register("ctx_contains")
+        def ctx_contains(*args, **kw) -> PredicateResult:
+            """¿El valor del contexto contiene el substring/elemento esperado?
+            Para strings: substring check. Para listas: membership check.
+            API: ctx_contains(key, substring) o ctx_contains($ctx, key, substring)."""
+            ctx = kw.get("_context", {})
+            if len(args) == 2:
+                key, substring = args[0], args[1]
+            elif len(args) == 3:
+                ctx = args[0] if isinstance(args[0], dict) else ctx
+                key, substring = args[1], args[2]
+            else:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": "ctx_contains requires 2 or 3 positional args"},
+                    source="ctx_contains",
+                )
+            if not isinstance(ctx, dict) or key not in ctx:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"missing_key": key}, source="ctx_contains",
+                )
+            actual = ctx[key]
+            if isinstance(actual, str) and isinstance(substring, str):
+                if substring in actual:
+                    return PredicateResult(
+                        truth=Truth.TRUE, certified=True,
+                        evidence={"key": key, "substring": substring, "found": True},
+                        source="ctx_contains",
+                    )
+                return PredicateResult(
+                    truth=Truth.FALSE, certified=True,
+                    evidence={"key": key, "substring": substring, "found": False},
+                    source="ctx_contains",
+                )
+            elif isinstance(actual, (list, tuple)) and substring in actual:
+                return PredicateResult(
+                    truth=Truth.TRUE, certified=True,
+                    evidence={"key": key, "element": substring, "found": True},
+                    source="ctx_contains",
+                )
+            return PredicateResult(
+                truth=Truth.FALSE, certified=True,
+                evidence={"key": key, "value": str(actual)[:100], "searched": substring},
+                source="ctx_contains",
+            )
+
+        @self.register("ctx_not_has")
+        def ctx_not_has(*args, **kw) -> PredicateResult:
+            """¿El contexto NO tiene la clave? — inverso de ctx_has.
+            API: ctx_not_has(key) o ctx_not_has($ctx, key)."""
+            ctx = kw.get("_context", {})
+            if len(args) == 1:
+                key = args[0]
+            elif len(args) == 2:
+                ctx = args[0] if isinstance(args[0], dict) else ctx
+                key = args[1]
+            else:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": "ctx_not_has requires 1 or 2 positional args"},
+                    source="ctx_not_has",
+                )
+            if not isinstance(ctx, dict) or key not in ctx or ctx[key] in (None, ""):
+                return PredicateResult(
+                    truth=Truth.TRUE, certified=True,
+                    evidence={"missing_key": key}, source="ctx_not_has",
+                )
+            return PredicateResult(
+                truth=Truth.FALSE, certified=True,
+                evidence={"key": key, "value": str(ctx[key])[:100]},
+                source="ctx_not_has",
+            )
+
         # ── PREDICADOS PRAGMÁTICOS (v0.2.0): preguntas sobre comportamiento
         # temporal y estructural, NO sobre el contenido estático del doc.
         # Siguen la misma disciplina R10: sin serie/topología no hay juicio
