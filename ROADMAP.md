@@ -72,6 +72,14 @@
 - [x] 18 tests in tests/test_engine_contract.py
 - [x] Backward-compatible: **kwargs in Protocol, old engines still work
 
+## ✅ v0.2.10 — Context Predicates
+- [x] ctx_equals(key, expected): exact value comparison for tree-based evaluation
+- [x] ctx_contains(key, substring): substring/list membership check
+- [x] ctx_not_has(key): inverse of ctx_has
+- [x] All support 2-arg (new) and 3-arg (legacy) API
+- [x] 24 tests in tests/test_ctx_predicates.py (503 total)
+- [x] Enables VSF second-order cybernetics pipeline (RSI predicates)
+
 ## 🚀 v0.3.0 — Extensión Formal
 - [x] DIALECTICAL_AND — contradicción certificada (desde v0.1)
 - [ ] Lógica paraconsistente (más allá de contradicción por pares)
