@@ -12,7 +12,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.10 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, **context predicates** (ctx_has, ctx_equals, ctx_contains, ctx_not_has), semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K via `_TreeLimitCounter`), **cycle detection**, caching, rate limiting, engine contract protocols (`SocraticEngineProtocol`, `EvaluationProtocol`), **security hardening** (enforce_limits=True by default, predicate error wrapping, arity validation), CI (pytest 3.10–3.12 + coverage gate at 90%), 503-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.11 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, **context predicates** (ctx_has, ctx_equals, ctx_contains, ctx_not_has), **`decide` CLI command** (evaluate decisions before execution), semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K via `_TreeLimitCounter`), **cycle detection**, caching, rate limiting, engine contract protocols (`SocraticEngineProtocol`, `EvaluationProtocol`), **security hardening** (enforce_limits=True by default, predicate error wrapping, arity validation), CI (pytest 3.10–3.12 + coverage gate at 90%), 519-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -737,13 +737,64 @@ the full API and config format.
 
 ## CLI
 
-Evaluate a JSON tree directly:
+### Evaluate a tree
 
 ```bash
 socratic-engine eval-tree tree.json --doc-type THEORY-VC-01
 ```
 
 A successful response contains the structured decision together with its explanation and diagnostic information.
+
+### Decide: evaluate decisions before execution
+
+The `decide` command evaluates decisions through the socratic engine, enabling RSI (Recursive Self-Improvement) by logging decision outcomes for learning.
+
+```bash
+# Simple reversible decision
+socratic-engine decide --decision "Use JSONL format" --json
+
+# Decision with alternatives and impact
+socratic-engine decide \
+  --decision "Restructure docs/" \
+  --alternatives "Keep,Reorganize" \
+  --impact "All references" \
+  --json
+
+# Irreversible decision (requires approval)
+socratic-engine decide \
+  --decision "Delete production data" \
+  --reversible false \
+  --approved \
+  --json
+
+# Additional context
+socratic-engine decide \
+  --decision "Deploy v2.0" \
+  --context '{"environment": "production", "rollback_plan": true}' \
+  --json
+```
+
+**Decision logic:**
+- Reversible decisions (`--reversible true`, default) pass automatically
+- Irreversible decisions (`--reversible false`) require `--approved` flag
+- Without approval, irreversible decisions return `UNKNOWN` (uncertified)
+
+**Output (JSON):**
+```json
+{
+  "truth": "TRUE",
+  "certified": true,
+  "home": "pass",
+  "explain": "op:AND → true [✓]...",
+  "decision": "Use JSONL format",
+  "context": {
+    "reversible": "true",
+    "has_alternatives": false,
+    "has_impact": false,
+    "approved": false
+  }
+}
+```
 
 This makes the same engine usable from:
 
@@ -752,7 +803,8 @@ This makes the same engine usable from:
 - scripts;
 - CI/CD;
 - MCP clients;
-- other VSM/VSF components.
+- other VSM/VSF components;
+- **decision evaluation before execution** (RSI integration).
 
 ---
 
@@ -789,7 +841,7 @@ python3 -m pytest tests/ -q
 The current repository snapshot passes:
 
 ```text
-479 passed
+519 passed
 ```
 
 at 100% statement coverage (CI gates at 90%; uncovered lines are
@@ -844,6 +896,7 @@ socratic-engine/
     ├── test_engine.py
     ├── test_mcp_server.py
     ├── test_cli.py
+    ├── test_cli_decide.py
     ├── test_bridge_statecanon.py
     ├── test_multi_bridge.py
     ├── test_vsm_doc.py
@@ -1092,6 +1145,7 @@ Operators validate their number of children:
 - Thread-safety: 16 threads × 200 evaluations on shared engine: **no errors**
 - Stack limits: RecursionError at ~498 nested NOT (without limits), clean ValueError with limits
 - Scaling: O(n) confirmed (100→1600 children, ratio ≤2.04x)
+- Decision evaluation: 16 tests for `decide` command (reversible/irreversible/approval)
 
 ---
 
@@ -1159,6 +1213,7 @@ See **[ROADMAP.md](./ROADMAP.md)** for the full development history and future p
 
 ### Current status
 
+- **v0.2.11** — `decide` CLI command: evaluate decisions before execution for RSI integration (519 tests)
 - **v0.2.10** — Context predicates: ctx_equals, ctx_contains, ctx_not_has for tree-based evaluation (503 tests)
 - **v0.2.9** — Security hardening: enforce_limits=True by default, cycle detection, XOR arity validation, predicate error wrapping, predicate overwrite warnings (479 tests)
 - **v0.2.8** — published on PyPI (engine contract protocols, `_TreeLimitCounter` bypass fix, 479 tests)

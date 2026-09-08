@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-09-07
+
+### Added
+- **`decide` CLI command** — Evaluate decisions through the socratic engine before execution. Enables RSI (Recursive Self-Improvement) by logging decision outcomes for learning.
+  - `--decision` — The decision to evaluate (required)
+  - `--alternatives` — Comma-separated alternatives considered
+  - `--impact` — Impact description
+  - `--reversible` — Whether reversible (true/false, default: true)
+  - `--prerequisites` — Comma-separated prerequisites
+  - `--approved` — Mark as approved (required for irreversible decisions)
+  - `--context` — Additional context as JSON
+  - `--json` — Output as JSON (default: human-readable)
+
+### Decision Evaluation Logic
+- Reversible decisions pass automatically if decision is provided
+- Irreversible decisions require `--approved` flag to pass
+- Without approval, irreversible decisions return `UNKNOWN` (uncertified)
+- Context merges into evaluation, affecting tree evaluation
+
+### Tests
+- 16 new tests in `tests/test_cli_decide.py`:
+  - 9 integration tests (subprocess)
+  - 4 unit tests for `_build_decide_tree`
+  - 3 unit tests for `_decide_cli`
+
 ## [0.2.10] - 2026-09-05
 
 ### Added
