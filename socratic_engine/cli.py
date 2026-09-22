@@ -334,6 +334,109 @@ def _build_decide_tree(ctx: dict) -> dict:
     return {"op": "AND", "children": children}
 
 
+def _match_procedure_cli(argv: list[str]) -> int:
+    """CLI: socratic-engine match-procedure --input '{"instrument":..., "hook":..., "context":..., "repoRoot":...}'
+    
+    Match current context against past procedures stored in learning_records/procedures/.
+    Returns JSON with action, confidence, matches_count, detail.
+    
+    Delegates to Python scenario_memory.py for matching logic.
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Match procedure context")
+    parser.add_argument("--input", required=True, help="JSON input with instrument, hook, context, repoRoot")
+    
+    args = parser.parse_args(argv)
+    
+    try:
+        inp = json.loads(args.input)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"action": "skip", "detail": f"invalid input: {e}", "matches_count": 0}))
+        return 0
+    
+    repo_root = inp.get("repoRoot", ".")
+    instrument = inp.get("instrument", "unknown")
+    hook = inp.get("hook", "session.idle")
+    context = inp.get("context", {})
+    
+    # Load procedures from learning_records/procedures/
+    proc_dir = Path(repo_root) / "docs" / "spec_revision" / "learning_records" / "procedures"
+    if not proc_dir.exists():
+        print(json.dumps({"action": "skip", "detail": "no procedures directory", "matches_count": 0}))
+        return 0
+    
+    procedures = []
+    for p in proc_dir.glob("*.json"):
+        try:
+            proc = json.loads(p.read_text())
+            if isinstance(proc, dict) and proc.get("type") == "procedure":
+                procedures.append(proc)
+        except (json.JSONDecodeError, OSError):
+            continue
+    
+    if not procedures:
+        print(json.dumps({"action": "skip", "detail": "no procedures recorded yet", "matches_count": 0}))
+        return 0
+    
+    # Match: calculate confidence for each procedure
+    matches = []
+    for proc in procedures:
+        confidence = 0.0
+        src = proc.get("source", {})
+        
+        # Instrument match (required)
+        if src.get("instrument") != instrument:
+            continue
+        confidence += 0.4
+        
+        # Hook match
+        if src.get("hook") == hook:
+            confidence += 0.3
+        
+        # Success bonus
+        outcome = proc.get("outcome", {})
+        if outcome.get("success"):
+            confidence += 0.2
+        
+        # Recency bonus (within 7 days)
+        ts = proc.get("metadata", {}).get("timestamp")
+        if ts:
+            try:
+                from datetime import datetime, timezone
+                proc_date = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                days = (now - proc_date).total_seconds() / 86400
+                if days <= 7:
+                    confidence += 0.1
+            except (ValueError, TypeError):
+                pass
+        
+        if confidence > 0:
+            matches.append({"procedure": proc, "confidence": round(confidence, 3)})
+    
+    matches.sort(key=lambda m: m["confidence"], reverse=True)
+    
+    # Recommendation
+    if not matches:
+        result = {"action": "skip", "confidence": 0, "matches_count": 0, "detail": "no matching procedures found"}
+    elif matches[0]["confidence"] >= 0.8:
+        best = matches[0]
+        result = {"action": "reuse", "confidence": best["confidence"], "matches_count": len(matches),
+                  "detail": f"high confidence match: {best['procedure'].get('id', 'unknown')}"}
+    elif matches[0]["confidence"] >= 0.6:
+        best = matches[0]
+        result = {"action": "adapt", "confidence": best["confidence"], "matches_count": len(matches),
+                  "detail": f"medium confidence match: {best['procedure'].get('id', 'unknown')}"}
+    else:
+        best = matches[0]
+        result = {"action": "skip", "confidence": best["confidence"], "matches_count": len(matches),
+                  "detail": f"low confidence match: {best['procedure'].get('id', 'unknown')}"}
+    
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point: `socratic-engine eval-tree <tree> [opts]` o selftest."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -341,6 +444,8 @@ def main(argv: list[str] | None = None) -> int:
         return _eval_tree_cli(args[1:])  # pragma: no cover — verificado por subprocess en tests; coverage no instrumenta procesos hijos
     if args and args[0] == "decide":
         return _decide_cli(args[1:])  # pragma: no cover — verificado por subprocess en tests
+    if args and args[0] == "match-procedure":
+        return _match_procedure_cli(args[1:])
     # selftest rápido (R4.1: el instrumento se auto-verifica)
     _run_selftest()
     return 0
