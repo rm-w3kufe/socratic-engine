@@ -11,6 +11,16 @@ El cuestionamiento atómico vive en predicates; cada nivel declara SU árbol
 
 R10 (LLM boundary): un predicate puede retornar PredicateResult(certified=False)
 — el LLM opina, no certifica. Solo la evidencia estructural certifica.
+
+R10-corolario (UNKNOWN certificado, S5 2026-09-22): certified=True admite
+truth=UNKNOWN SOLO con evidencia de indeterminación — prueba de que la
+respuesta es indeterminada, no ausencia de respuesta. Vocabulario en
+INDETERMINACY_KINDS; el gate en _evaluate_predicate degrada a
+certified=False todo UNKNOWN certificado sin bloque `indeterminacy`.
+Precedente interno: DIALECTICAL_AND ya certifica UNKNOWN ante
+contradicción probada (evidencia en conflicto ≠ falta de evidencia).
+"Ausencia verificada" (búsqueda exhaustiva vacía) se expresa como
+TRUE-con-evidencia, no como UNKNOWN.
 """
 
 from __future__ import annotations
@@ -98,6 +108,33 @@ class PredicateResult:
 
 # Tipo flexible: un predicado puede retornar bool o PredicateResult
 Predicate = Callable[..., Union[bool, PredicateResult]]
+
+
+# ============================================================
+# INDETERMINACY VOCABULARY (S5 2026-09-22 — UNKNOWN certificado)
+# ============================================================
+
+#: Causas legítimas de indeterminación certificable. Un UNKNOWN con
+#: certified=True DEBE traer evidence["indeterminacy"] = {"kind": <uno de
+#: estos>, ...prueba}. Sin ese bloque, el gate lo degrada a uncertified.
+INDETERMINACY_KINDS = frozenset({
+    "undecidable-reduction",   # reducido a problema indecidible (halting, Gödel)
+    "quantum-superposition",   # sin valor definido pre-medición (collapses_on)
+    "jury-hung",               # jurado sin supermayoría con quórum (tally)
+    "exhaustive-empty",        # búsqueda exhaustiva completada sin hallazgo
+    "vague-boundary",          # caso en penumbra verificada (sorites)
+    "symmetric-tie",           # opciones simétricas + tiebreak_procedure
+})
+
+
+def _valid_indeterminacy(evidence: Any) -> bool:
+    """¿La evidencia porta prueba de indeterminación genuina?"""
+    if not isinstance(evidence, dict):
+        return False
+    ind = evidence.get("indeterminacy")
+    if not isinstance(ind, dict):
+        return False
+    return ind.get("kind") in INDETERMINACY_KINDS
 
 
 class PredicateCache:
@@ -198,7 +235,7 @@ class SocraticEngine:
     y conserva el rastro completo del razonamiento.
     """
 
-    OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES", "DIALECTICAL_AND"}
+    OPERATORS = {"AND", "OR", "NOT", "XOR", "IMPLIES", "DIALECTICAL_AND", "JURY"}
 
     def __init__(self, *, inject_context_always: bool = False):
         self.predicates: Dict[str, Predicate] = {}
@@ -982,9 +1019,26 @@ class SocraticEngine:
                 f"no {type(raw_result).__name__}"
             )
 
+        # Gate R10-corolario: UNKNOWN certificado exige prueba de
+        # indeterminación. Sin bloque `indeterminacy` válido, la
+        # certificación es una afirmación sin evidencia → se degrada
+        # (warning, no excepción: el truth se conserva).
+        certified = result.certified
+        if result.truth == Truth.UNKNOWN and certified:
+            if not _valid_indeterminacy(result.evidence):
+                import warnings
+                warnings.warn(
+                    f"Predicado '{name}' retornó UNKNOWN+certified sin "
+                    f"evidencia de indeterminación — degradado a uncertified "
+                    f"(R10-corolario, INDETERMINACY_KINDS)",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                certified = False
+
         return Evaluation(
             truth=result.truth,
-            certified=result.certified,
+            certified=certified,
             evidence=result.evidence,
             source=result.source,
             context=ctx.copy(),
@@ -1096,7 +1150,7 @@ class SocraticEngine:
 
         # Validate arity for operators that require children
         if not children_nodes:
-            if op in ("NOT", "IMPLIES", "XOR"):
+            if op in ("NOT", "IMPLIES", "XOR", "JURY"):
                 raise ValueError(f"{op} requiere al menos un hijo")
             # AND/OR with empty children: warn but allow (mathematical identity)
             import warnings
@@ -1107,15 +1161,37 @@ class SocraticEngine:
                 stacklevel=2,
             )
 
-        truth = self._apply_operator(op, children)
-
-        # Certificación del operador: solo si TODOS los hijos relevantes están certificados
-        certified = self._compute_operator_certification(op, children)
-
         # Metadata dialéctica: cuando hay conflicto certificado, documentar
         # exactamente la tensión (qué hijos afirman, cuáles niegan, con qué
         # evidencia) para que el nivel superior pueda sintetizar.
         metadata: Dict[str, Any] = {}
+
+        if op == "JURY":
+            # Camino dedicado: tally completo sin short-circuit. El tally
+            # viaja en metadata (slot estructural para operadores;
+            # precedente: dialectical_conflict). Veredicto colgado porta
+            # además bloque `indeterminacy` (vocabulario S5) para que los
+            # consumidores downstream lo reconozcan sin re-derivar.
+            truth, jury_record = self._apply_jury(node, children)
+            metadata["jury"] = jury_record
+            if jury_record["verdict"] == "hung":
+                metadata["indeterminacy"] = {
+                    "kind": "jury-hung",
+                    "tally": jury_record["tally"],
+                    "quorum": jury_record["quorum"],
+                    "supermajority": jury_record["supermajority"],
+                }
+        else:
+            truth = self._apply_operator(op, children)
+
+        # Certificación del operador: solo si TODOS los hijos relevantes están certificados
+        certified = self._compute_operator_certification(op, children)
+
+        if op == "JURY" and jury_record["verdict"] == "no-quorum":
+            # Sin quórum no hay veredicto: el tally incompleto es
+            # ignorancia, no indeterminación certificable.
+            certified = False
+
         if op == "DIALECTICAL_AND":
             affirm = [c for c in children if c.is_true]
             deny = [c for c in children if c.is_false]
@@ -1196,6 +1272,50 @@ class SocraticEngine:
         raise ValueError(f"Operador no implementado: {op}")  # pragma: no cover — inalcanzable: _evaluate_operator valida op ∈ OPERATORS antes (línea 601); aquí solo llegan ops conocidas
 
     @staticmethod
+    def _apply_jury(node: Dict[str, Any], children: List[Evaluation]) -> tuple:
+        """Tally de jurado: veredicto por supermayoría o hung certificado.
+
+        Nodo: {"op": "JURY", "children": [...], "quorum": int?,
+               "supermajority": float?} — quorum default = todos los hijos
+        (jurado incompleto = veredicto inválido); supermajority default 2/3,
+        debe estar en (0.5, 1.0].
+
+        Retorna (Truth, jury_record). Hung → truth UNKNOWN con record para
+        bloque `indeterminacy` (el desacuerdo certificado es el hallazgo).
+        Votos UNKNOWN son abstenciones: no cuentan para ningún lado.
+        """
+        n = len(children)
+        quorum = node.get("quorum", n)
+        supermajority = node.get("supermajority", 2 / 3)
+        if not 0.5 < supermajority <= 1.0:
+            raise ValueError(
+                f"JURY supermajority debe estar en (0.5, 1.0], no {supermajority}"
+            )
+
+        tally = {
+            "true": sum(1 for c in children if c.is_true),
+            "false": sum(1 for c in children if c.is_false),
+            "unknown": sum(1 for c in children if c.is_unknown),
+        }
+        record = {
+            "verdict": "hung",
+            "tally": tally,
+            "quorum": quorum,
+            "supermajority": supermajority,
+            "seated": n,
+        }
+        if n < quorum:
+            record["verdict"] = "no-quorum"
+            return Truth.UNKNOWN, record
+        if n > 0 and tally["true"] / n >= supermajority:
+            record["verdict"] = "true"
+            return Truth.TRUE, record
+        if n > 0 and tally["false"] / n >= supermajority:
+            record["verdict"] = "false"
+            return Truth.FALSE, record
+        return Truth.UNKNOWN, record
+
+    @staticmethod
     def _compute_operator_certification(op: str, children: List[Evaluation]) -> bool:
         """
         Regla de certificación por operador:
@@ -1204,6 +1324,9 @@ class SocraticEngine:
           NOT  → el hijo debe estar certificado
           XOR  → ambos hijos deben estar certificados
           IMPLIES → antecedente y consecuente deben estar certificados
+          JURY → todos los votos certificados (el veredicto — incluido el
+            hung — certifica el *procedimiento*, precedente escocés:
+            quórum + tally completo auditable). Sin quórum → uncertified.
         """
         if not children:
             return False  # pragma: no cover — inalcanzable: _evaluate_operator valida children no vacío antes
@@ -1236,6 +1359,13 @@ class SocraticEngine:
 
         if op in ("NOT", "XOR", "IMPLIES"):
             return all(c.certified for c in children)
+
+        if op == "JURY":
+            # El veredicto (determinado o hung) certifica el procedimiento:
+            # todos los votos deben estar certificados. Sin quórum no hay
+            # veredicto válido → uncertified (el tally incompleto es
+            # ignorancia, no indeterminación).
+            return bool(children) and all(c.certified for c in children)
 
         return False  # pragma: no cover — inalcanzable: solo llegan ops ∈ OPERATORS (validado en _evaluate_operator)
 

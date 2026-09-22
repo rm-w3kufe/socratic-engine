@@ -504,14 +504,32 @@ class TestCertification:
         assert r.certified is False
 
     def test_unknown_certified(self, engine):
-        """Predicado que retorna UNKNOWN certificado."""
+        """UNKNOWN certificado CON prueba de indeterminación se conserva
+        (R10-corolario, S5 2026-09-22)."""
         engine.register("cert_unknown")(
-            lambda **kw: PredicateResult(truth=Truth.UNKNOWN, certified=True, source="cert_unknown")
+            lambda **kw: PredicateResult(
+                truth=Truth.UNKNOWN, certified=True, source="cert_unknown",
+                evidence={"indeterminacy": {"kind": "jury-hung"}},
+            )
         )
 
         r = engine.evaluate({"predicate": "cert_unknown"}, {})
         assert r.truth == Truth.UNKNOWN
         assert r.certified is True
+
+    def test_unknown_certified_without_proof_degrades(self, engine):
+        """UNKNOWN certificado SIN prueba de indeterminación se degrada
+        (R10-corolario): el truth se conserva, la certificación no."""
+        import warnings
+        engine.register("bare_unknown")(
+            lambda **kw: PredicateResult(truth=Truth.UNKNOWN, certified=True, source="bare_unknown")
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            r = engine.evaluate({"predicate": "bare_unknown"}, {})
+        assert r.truth == Truth.UNKNOWN
+        assert r.certified is False
 
     def test_unknown_uncertified(self, engine):
         """Predicado que retorna UNKNOWN sin certificación."""

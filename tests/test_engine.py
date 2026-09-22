@@ -1,6 +1,7 @@
 """Tests del núcleo: trivaluado, certificación, trace inverso, builder."""
 
 import pytest
+import warnings
 
 from socratic_engine import (
     SocraticEngine,
@@ -1361,3 +1362,194 @@ def test_or_all_uncertified_guilty(engine):
     assert not ev.certified
     traces = engine.diagnose(tree)
     assert len(traces) >= 1
+
+
+# ── UNKNOWN CERTIFICADO + OPERADOR JURY (S5 2026-09-22, R10-corolario) ──
+
+def _mk_juror(engine, name, result, certified=True, evidence=None):
+    """Jurado: voto fijo con certificación configurable.
+
+    Un voto UNKNOWN solo conserva su certificación con evidencia de
+    indeterminación (el gate R10-corolario degrada el resto) — esto es
+    intencional y se ejercita en test_jury_abstentions_dont_count.
+    """
+    @engine.register(name)
+    def juror(**kw):
+        ev = dict(evidence) if evidence else {f"{name}_vote": result.value}
+        return PredicateResult(truth=result, certified=certified, evidence=ev)
+    return juror
+
+
+def test_gate_degrades_certified_unknown_without_indeterminacy(engine):
+    """UNKNOWN+certified sin bloque indeterminacy se degrada (warning)."""
+    @engine.register("opina_unknown")
+    def opina_unknown(**kw):
+        return PredicateResult(truth=Truth.UNKNOWN, certified=True)
+    with pytest.warns(UserWarning, match="indeterminaci"):
+        ev = engine.evaluate({"predicate": "opina_unknown"})
+    assert ev.is_unknown, "el truth se conserva"
+    assert not ev.certified, "la certificación sin evidencia se degrada"
+
+
+def test_gate_keeps_certified_unknown_with_indeterminacy(engine):
+    """UNKNOWN+certified CON prueba de indeterminación se conserva."""
+    @engine.register("prueba_imposible")
+    def prueba_imposible(**kw):
+        return PredicateResult(
+            truth=Truth.UNKNOWN, certified=True,
+            evidence={"indeterminacy": {
+                "kind": "undecidable-reduction",
+                "proof": "reduce-a-halting",
+            }},
+        )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # ningún warning aquí
+        ev = engine.evaluate({"predicate": "prueba_imposible"})
+    assert ev.is_unknown
+    assert ev.certified
+
+
+def test_gate_rejects_unknown_indeterminacy_kind(engine):
+    """Kind fuera del vocabulario no certifica (puerta contra inflación)."""
+    @engine.register("invento_kind")
+    def invento_kind(**kw):
+        return PredicateResult(
+            truth=Truth.UNKNOWN, certified=True,
+            evidence={"indeterminacy": {"kind": "porque-si"}},
+        )
+    with pytest.warns(UserWarning):
+        ev = engine.evaluate({"predicate": "invento_kind"})
+    assert ev.is_unknown
+    assert not ev.certified
+
+
+def test_jury_supermajority_true(engine):
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.TRUE)
+    _mk_juror(engine, "j3", Truth.TRUE)
+    _mk_juror(engine, "j4", Truth.FALSE)
+    ev = engine.evaluate({"op": "JURY", "children": [
+        {"predicate": "j1"}, {"predicate": "j2"},
+        {"predicate": "j3"}, {"predicate": "j4"},
+    ]})
+    assert ev.is_true  # 3/4 >= 2/3
+    assert ev.certified  # todos los votos certificados
+    assert ev.metadata["jury"]["verdict"] == "true"
+    assert ev.metadata["jury"]["tally"] == {"true": 3, "false": 1, "unknown": 0}
+
+
+def test_jury_supermajority_false(engine):
+    _mk_juror(engine, "j1", Truth.FALSE)
+    _mk_juror(engine, "j2", Truth.FALSE)
+    _mk_juror(engine, "j3", Truth.TRUE)
+    ev = engine.evaluate({"op": "JURY", "children": [
+        {"predicate": "j1"}, {"predicate": "j2"}, {"predicate": "j3"},
+    ]})
+    assert ev.is_false  # 2/3 >= 2/3
+    assert ev.certified
+
+
+def test_jury_hung_is_certified_unknown(engine):
+    """Jurado colgado con quórum: el desacuerdo certificado es el hallazgo
+    (precedente escocés: not proven)."""
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.FALSE)
+    ev = engine.evaluate({"op": "JURY", "children": [
+        {"predicate": "j1"}, {"predicate": "j2"},
+    ]})
+    assert ev.is_unknown
+    assert ev.certified, "desacuerdo con quórum = indeterminación certificada"
+    assert ev.metadata["indeterminacy"]["kind"] == "jury-hung"
+    assert ev.metadata["jury"]["verdict"] == "hung"
+
+
+def test_jury_uncertified_vote_blocks_certification(engine):
+    """Un voto sin certificar contamina el tally: veredicto uncertified."""
+    _mk_juror(engine, "j1", Truth.TRUE, certified=True)
+    _mk_juror(engine, "j2", Truth.TRUE, certified=True)
+    _mk_juror(engine, "j3", Truth.TRUE, certified=False)  # opina, no certifica
+    ev = engine.evaluate({"op": "JURY", "children": [
+        {"predicate": "j1"}, {"predicate": "j2"}, {"predicate": "j3"},
+    ]})
+    assert ev.is_true  # el veredicto se alcanza igual...
+    assert not ev.certified  # ...pero sin aval procedimental
+
+
+def test_jury_no_quorum_is_ignorance(engine):
+    """Sin quórum no hay veredicto: UNKNOWN uncertified (ignorancia)."""
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.TRUE)
+    ev = engine.evaluate({"op": "JURY", "quorum": 5, "children": [
+        {"predicate": "j1"}, {"predicate": "j2"},
+    ]})
+    assert ev.is_unknown
+    assert not ev.certified
+    assert ev.metadata["jury"]["verdict"] == "no-quorum"
+
+
+def test_jury_empty_raises(engine):
+    """Jurado sin jurados es error estructural, no veredicto silencioso."""
+    with pytest.raises(ValueError):
+        engine.evaluate({"op": "JURY", "children": []})
+
+
+def test_jury_custom_supermajority(engine):
+    """Supermayoría configurable: unanimidad exige 3/3."""
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.TRUE)
+    _mk_juror(engine, "j3", Truth.FALSE)
+    ev = engine.evaluate({"op": "JURY", "supermajority": 1.0, "children": [
+        {"predicate": "j1"}, {"predicate": "j2"}, {"predicate": "j3"},
+    ]})
+    assert ev.is_unknown  # 2/3 < 1.0 -> hung
+    assert ev.certified
+
+
+def test_jury_invalid_supermajority_raises(engine):
+    """Supermayoría <= 0.5 es pluralidad, no supermayoría: error."""
+    _mk_juror(engine, "j1", Truth.TRUE)
+    with pytest.raises(ValueError, match="supermajority"):
+        engine.evaluate({"op": "JURY", "supermajority": 0.5, "children": [
+            {"predicate": "j1"},
+        ]})
+
+
+def test_jury_abstentions_dont_count(engine):
+    """Votos UNKNOWN son abstenciones: no inclinan ningún lado.
+
+    Doctrina de punta a punta: la abstención solo conserva su
+    certificación con prueba de indeterminación (aquí exhaustive-empty:
+    "busqué y no hallé"). Sin ella, el gate la degrada y el veredicto
+    —aunque direccionalmente correcto— queda uncertified.
+    """
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.TRUE)
+    empty_search = {"indeterminacy": {
+        "kind": "exhaustive-empty", "scanned": 42,
+    }}
+    _mk_juror(engine, "j3", Truth.UNKNOWN, evidence=empty_search)
+    _mk_juror(engine, "j4", Truth.UNKNOWN, evidence=empty_search)
+    ev = engine.evaluate({"op": "JURY", "children": [
+        {"predicate": "j1"}, {"predicate": "j2"},
+        {"predicate": "j3"}, {"predicate": "j4"},
+    ]})
+    # 2/4 = 0.5 < 2/3 -> hung aunque los únicos votos decididos sean TRUE
+    assert ev.is_unknown
+    assert ev.certified
+    assert ev.metadata["jury"]["tally"]["unknown"] == 2
+
+
+def test_jury_uncertified_abstention_blocks_certification(engine):
+    """Abstención sin prueba de indeterminación: el gate la degrada y el
+    veredicto colgado pierde la certificación (el tally no es auditable)."""
+    _mk_juror(engine, "j1", Truth.TRUE)
+    _mk_juror(engine, "j2", Truth.FALSE)
+    _mk_juror(engine, "j3", Truth.UNKNOWN)  # sin evidencia -> degradada
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        ev = engine.evaluate({"op": "JURY", "children": [
+            {"predicate": "j1"}, {"predicate": "j2"}, {"predicate": "j3"},
+        ]})
+    assert ev.is_unknown  # hung direccionalmente correcto...
+    assert not ev.certified  # ...pero sin aval procedimental
