@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import importlib
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -48,11 +49,19 @@ def _normalize_filter(filter_arg: Any) -> Optional[dict]:
 class ProviderEntry:
     """Wrapper for a registered provider with metadata and health tracking."""
 
-    def __init__(self, name: str, provider: Any, domains: list[str]):
+    def __init__(
+        self,
+        name: str,
+        provider: Any,
+        domains: list[str],
+        priority: int = 0,
+    ):
         self.name = name
         self.provider = provider
         self.domains = domains
         self.status = 'active'
+        # Routing priority (GAP-9): higher wins on duplicate domains.
+        self.priority = priority
         # Health tracking (GAP-6)
         self._healthy = True
         self._last_error: Optional[str] = None
@@ -125,6 +134,7 @@ class MultiBridge:
     def __init__(self):
         self._providers: dict[str, ProviderEntry] = {}
         self._domain_map: dict[str, str] = {}  # domain -> provider name
+        self._domain_priority: dict[str, int] = {}  # domain -> winning priority
         self.engine: Optional[SocraticEngine] = None
 
     def add_provider(
@@ -132,25 +142,39 @@ class MultiBridge:
         name: str,
         provider: Any,
         domains: Optional[list[str]] = None,
+        priority: int = 0,
     ) -> None:
-        """Register a provider.  If *domains* is None, use provider.list_domains()."""
+        """Register a provider.  If *domains* is None, use provider.list_domains().
+
+        Duplicate domains resolve by *priority* (GAP-9, higher wins);
+        on tie, the first registered provider keeps the domain.
+        """
         if domains is None:
             try:
                 domains = provider.list_domains()
             except Exception:
                 domains = []
 
-        entry = ProviderEntry(name, provider, domains)
+        entry = ProviderEntry(name, provider, domains, priority=priority)
         self._providers[name] = entry
 
         for domain in domains:
-            if domain in self._domain_map:
-                existing = self._domain_map[domain]
-                logger.warning(
-                    f"Domain '{domain}' already registered by "
-                    f"'{existing}', overwritten by '{name}'"
+            current = self._domain_map.get(domain)
+            if current is None:
+                self._domain_map[domain] = name
+                self._domain_priority[domain] = priority
+            elif priority > self._domain_priority[domain]:
+                logger.info(
+                    f"Domain '{domain}' rerouted '{current}' -> '{name}' "
+                    f"(priority {self._domain_priority[domain]} -> {priority})"
                 )
-            self._domain_map[domain] = name
+                self._domain_map[domain] = name
+                self._domain_priority[domain] = priority
+            else:
+                logger.debug(
+                    f"Domain '{domain}' kept by '{current}' "
+                    f"(priority {self._domain_priority[domain]} >= {priority})"
+                )
 
         logger.info(
             f"Registered provider '{name}' with {len(domains)} domains"
@@ -165,6 +189,7 @@ class MultiBridge:
         to_remove = [d for d, n in self._domain_map.items() if n == name]
         for d in to_remove:
             del self._domain_map[d]
+            self._domain_priority.pop(d, None)
 
         logger.info(
             f"Removed provider '{name}' ({len(entry.domains)} domains)"
@@ -450,6 +475,7 @@ class MultiBridge:
                     "domains": domains,
                     "status": status,
                     "declared_domains": entry.domains,
+                    "priority": entry.priority,
                     "health": entry.health,
                 }
             )
@@ -485,11 +511,16 @@ class MultiBridge:
                         "provider_class": "VsmStateProvider",
                         "module": "instances.tasks_provider",
                         "init_args": {"vsm_path": "/path/to/TASKS.vsm"},
-                        "domains": ["tasks", "sessions"]
+                        "domains": ["tasks", "sessions"],
+                        "priority": 10
                     },
                     ...
                 ]
             }
+
+        The optional ``priority`` (default 0, higher wins) resolves
+        duplicate domains across providers (GAP-9); on tie, first
+        registered keeps the domain.
         """
         config_path = Path(config_path)
         if not config_path.exists():
@@ -513,11 +544,25 @@ class MultiBridge:
             domains = entry.get("domains")
 
             try:
-                # Lazy import
-                module = importlib.import_module(module_path)
+                # Lazy import. Falls back to sys.modules: under pytest (and
+                # in plugin hosts) the provider module is often already
+                # imported but not resolvable via importlib's finder
+                # (e.g. "tests.test_multi_bridge" loads as top-level
+                # "test_multi_bridge" under rootdir import mode).
+                try:
+                    module = importlib.import_module(module_path)
+                except ModuleNotFoundError:
+                    module = sys.modules.get(module_path)
+                    if module is None:
+                        module = sys.modules.get(module_path.rsplit(".", 1)[-1])
+                    if module is None:
+                        raise
                 provider_class = getattr(module, class_name)
                 provider = provider_class(**init_args)
-                bridge.add_provider(name, provider, domains)
+                bridge.add_provider(
+                    name, provider, domains,
+                    priority=entry.get("priority", 0),
+                )
             except Exception as e:
                 logger.error(f"Failed to load provider '{name}': {e}")
                 # Continue with remaining providers

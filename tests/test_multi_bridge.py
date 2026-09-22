@@ -101,10 +101,26 @@ class TestMultiBridge:
         assert bridge._domain_map["svc"] == "p1"
 
     def test_domain_override(self):
+        # GAP-9: duplicate domains resolve by priority (higher wins);
+        # on tie, first registered keeps the domain.
         bridge = MultiBridge()
         bridge.add_provider("p1", FakeProvider({"svc": [{"n": 1}]}), ["svc"])
         bridge.add_provider("p2", FakeProvider({"svc": [{"n": 2}]}), ["svc"])
-        # p2 wins
+        # tie -> first registered wins
+        assert bridge._domain_map["svc"] == "p1"
+
+    def test_domain_override_priority(self):
+        # Higher priority reroutes the domain.
+        bridge = MultiBridge()
+        bridge.add_provider("p1", FakeProvider({"svc": [{"n": 1}]}), ["svc"])
+        bridge.add_provider(
+            "p2", FakeProvider({"svc": [{"n": 2}]}), ["svc"], priority=10,
+        )
+        assert bridge._domain_map["svc"] == "p2"
+        # Lower priority does not reroute back.
+        bridge.add_provider(
+            "p3", FakeProvider({"svc": [{"n": 3}]}), ["svc"], priority=5,
+        )
         assert bridge._domain_map["svc"] == "p2"
 
     def test_remove_provider(self):
@@ -387,3 +403,117 @@ class TestCrossDomain:
         }
         ev = eng.evaluate(tree)
         assert ev.truth == Truth.UNKNOWN  # AND with UNKNOWN child
+
+    # ── GAP-4: OR / NOT / nested / empty-children composites ──
+
+    def _svc_bridge(self):
+        bridge = MultiBridge()
+        bridge.add_provider(
+            "p1", FakeProvider({"svc": [{"name": "a"}]}), ["svc"]
+        )
+        bridge.add_provider("p2", FakeProvider({"empty": []}), ["empty"])
+        eng = SocraticEngine()
+        bridge.register(eng)
+        return eng
+
+    def test_or_one_child_true(self):
+        """OR is TRUE when any child has records."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "OR",
+            "children": [
+                {"predicate": "canon_query", "args": ["empty"]},
+                {"predicate": "canon_query", "args": ["svc"]},
+            ],
+        })
+        assert ev.truth == Truth.TRUE
+        assert ev.certified is True
+
+    def test_or_all_children_unknown(self):
+        """OR over all-UNKNOWN children stays UNKNOWN (no silent FALSE)."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "OR",
+            "children": [
+                {"predicate": "canon_query", "args": ["empty"]},
+                {"predicate": "canon_query", "args": ["missing"]},
+            ],
+        })
+        assert ev.truth == Truth.UNKNOWN
+
+    def test_not_true_child(self):
+        """NOT over a TRUE child is FALSE."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "NOT",
+            "children": [{"predicate": "canon_query", "args": ["svc"]}],
+        })
+        assert ev.truth == Truth.FALSE
+
+    def test_not_unknown_child(self):
+        """NOT over UNKNOWN stays UNKNOWN (no silent flip to TRUE)."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "NOT",
+            "children": [{"predicate": "canon_query", "args": ["empty"]}],
+        })
+        assert ev.truth == Truth.UNKNOWN
+
+    def test_nested_and_or_not(self):
+        """Nested AND(OR(...), NOT(...)) evaluates inside-out."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "AND",
+            "children": [
+                {"op": "OR", "children": [
+                    {"predicate": "canon_query", "args": ["empty"]},
+                    {"predicate": "canon_query", "args": ["svc"]},
+                ]},
+                {"op": "NOT", "children": [
+                    {"predicate": "canon_query", "args": ["empty"]},
+                ]},
+            ],
+        })
+        # OR(UNKNOWN, TRUE)=TRUE; NOT(UNKNOWN)=UNKNOWN; AND(TRUE, UNKNOWN)=UNKNOWN
+        assert ev.truth == Truth.UNKNOWN
+
+    def test_nested_unknown_propagation_deep(self):
+        """UNKNOWN propagates through every nesting level (never silenced)."""
+        eng = self._svc_bridge()
+        ev = eng.evaluate({
+            "op": "AND",
+            "children": [
+                {"op": "OR", "children": [
+                    {"predicate": "canon_query", "args": ["svc"]},
+                    {"predicate": "canon_query", "args": ["empty"]},
+                ]},
+                {"op": "NOT", "children": [
+                    {"predicate": "canon_query", "args": ["missing"]},
+                ]},
+            ],
+        })
+        # OR(TRUE, UNKNOWN)=TRUE; NOT(unknown-domain)=UNKNOWN;
+        # AND(TRUE, UNKNOWN)=UNKNOWN
+        assert ev.truth == Truth.UNKNOWN
+
+    def test_empty_and_is_identity(self):
+        """AND with no children is logical identity TRUE (warns, uncertified)."""
+        eng = self._svc_bridge()
+        with pytest.warns(UserWarning):
+            ev = eng.evaluate({"op": "AND", "children": []})
+        assert ev.truth == Truth.TRUE
+        assert ev.certified is False
+
+    def test_empty_or_is_identity(self):
+        """OR with no children is logical identity FALSE (warns, uncertified)."""
+        eng = self._svc_bridge()
+        with pytest.warns(UserWarning):
+            ev = eng.evaluate({"op": "OR", "children": []})
+        assert ev.truth == Truth.FALSE
+        assert ev.certified is False
+
+    def test_empty_not_raises(self):
+        """NOT with no children is a structural error, not a silent value."""
+        eng = self._svc_bridge()
+        with pytest.raises(ValueError):
+            eng.evaluate({"op": "NOT", "children": []})

@@ -190,17 +190,70 @@ def parse_socratic_block(text: str) -> Optional[dict]:
         else_home: "sandbox",
       }
     Soporta anidamiento arbitrario (AND/OR/NOT, kwargs, homes). Retorna
-    None si no hay bloque socratic."""
+    None si no hay bloque socratic.
+
+    Notación inline (GAP-8): socratic(predicate, arg, ...) — shorthand de
+      {"predicate": ..., "args": [...]}. Útil en docs y tests.
+    """
     if "socratic(" not in text:
         return None
     m = re.search(r'socratic\("[^"]*"\)\s*=\s*\{', text)
+    if m:
+        body = text[m.end() - 1:]  # desde el { del bloque
+        obj, _ = _parse_vsl_value(body, 0)
+        if not isinstance(obj, dict):
+            return None  # pragma: no cover — inalcanzable: regex exige '{' tras '=', _parse_vsl_value devuelve dict
+        return obj
+    return _parse_socratic_inline(text)
+
+
+def _parse_socratic_inline(text: str) -> Optional[dict]:
+    """Parsea notación inline: socratic(predicate, arg1, arg2, ...).
+
+    Retorna {"predicate": name, "args": [...]} o None si no hay forma inline.
+    La forma de bloque socratic("NAME") = {...} NO matchea aquí (el primer
+    token debe ser un identificador desnudo, no un string quotado).
+    """
+    m = re.search(r'socratic\(\s*([A-Za-z_]\w*)', text)
     if not m:
         return None
-    body = text[m.end() - 1:]  # desde el { del bloque
-    obj, _ = _parse_vsl_value(body, 0)
-    if not isinstance(obj, dict):
-        return None  # pragma: no cover — inalcanzable: regex exige '{' tras '=', _parse_vsl_value devuelve dict
-    return obj
+    pred = m.group(1)
+    # Encontrar el paréntesis de cierre correspondiente (respeta quotes).
+    i = m.end()
+    depth = 1
+    in_str: Optional[str] = None
+    close = -1
+    while i < len(text):
+        c = text[i]
+        if in_str:
+            if c == in_str:
+                in_str = None
+        elif c in ("'", '"'):
+            in_str = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                close = i
+                break
+        i += 1
+    if close < 0:
+        return None  # paréntesis desbalanceado
+    inner = text[m.end():close]
+    args: list = []
+    j = 0
+    while j < len(inner):
+        k = j
+        while k < len(inner) and inner[k] in " \t\n\r,":
+            k += 1
+        if k >= len(inner):
+            break
+        val, j = _parse_vsl_value(inner, k)
+        if j <= k:
+            return None  # token no parseable
+        args.append(val)
+    return {"predicate": pred, "args": args}
 
 
 def tree_home(tree: Optional[dict], doc_type: str, engine: SocraticEngine,

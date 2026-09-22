@@ -1120,9 +1120,49 @@ def test_parse_vsl_float_bare_word():
 
 def test_parse_socratic_block_no_regex_match():
     from socratic_engine.tree import parse_socratic_block
-    # "socratic(" presente pero sin formato "NAME) = {" → None (194/198)
-    assert parse_socratic_block("socratic( x ) = {") is None
-    assert parse_socratic_block("socratic(NAME) without equals") is None
+    # GAP-8: bare-identifier form now parses as INLINE shorthand
+    # (block form still requires quoted "NAME" + = {).
+    assert parse_socratic_block("socratic( x ) = {") == {
+        "predicate": "x", "args": [],
+    }
+    assert parse_socratic_block("socratic(NAME) without equals") == {
+        "predicate": "NAME", "args": [],
+    }
+    # Still None: quoted name without block, non-identifier, no socratic(.
+    assert parse_socratic_block('socratic("N")') is None
+    assert parse_socratic_block("socratic(123)") is None
+
+
+def test_parse_socratic_inline_notation():
+    # GAP-8: socratic(predicate, arg, ...) -> {"predicate", "args"}.
+    from socratic_engine.tree import parse_socratic_block
+    assert parse_socratic_block(
+        'socratic(type_prefix, "s5-", "s5-policy")'
+    ) == {"predicate": "type_prefix", "args": ["s5-", "s5-policy"]}
+    # Numbers, booleans, mixed quotes.
+    assert parse_socratic_block("socratic(gt, x, 3)") == {
+        "predicate": "gt", "args": ["x", 3],
+    }
+    assert parse_socratic_block("socratic(flag, true)") == {
+        "predicate": "flag", "args": [True],
+    }
+    # NOTE: VSL strings are double-quoted (same as block-notation parser).
+    # No args -> empty list (still a valid predicate node).
+    assert parse_socratic_block("socratic(ctx_has)") == {
+        "predicate": "ctx_has", "args": [],
+    }
+    # Unbalanced paren -> None (no silent partial parse).
+    assert parse_socratic_block('socratic(foo, "bar"') is None
+    # Parens inside quoted strings don't confuse the matcher.
+    assert parse_socratic_block('socratic(match, "a(b)")') == {
+        "predicate": "match", "args": ["a(b)"],
+    }
+    # Inline result evaluates through the engine.
+    from socratic_engine.engine import SocraticEngine
+    eng = SocraticEngine()
+    tree = parse_socratic_block('socratic(type_prefix, "$type", "VSL-")')
+    ev = eng.evaluate(tree, {"type": "VSL-LANG-GATES-v1.0"})
+    assert ev.is_true
 
 
 def test_parse_vsl_value_bare_dict_after_body():
