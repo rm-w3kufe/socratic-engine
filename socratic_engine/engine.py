@@ -882,8 +882,18 @@ class SocraticEngine:
                 _visited=_visited,
             )
 
+        # --- COMPUTATION: genome computation graph (GAP-03 full fix) ---
+        if isinstance(node, dict) and "computation" in node:
+            return self._evaluate_computation(
+                node, ctx,
+                enforce_limits=enforce_limits,
+                _depth=_depth + 1,
+                _limit_counter=_limit_counter,
+                _visited=_visited,
+            )
+
         raise ValueError(
-            f"Nodo inválido: debe ser bool, o dict con 'predicate'/'op'. Recibido: {node}"
+            f"Nodo inválido: debe ser bool, o dict con 'predicate'/'op'/'computation'. Recibido: {node}"
         )
 
     # --------------------------------------------------------
@@ -1228,6 +1238,153 @@ class SocraticEngine:
             return all(c.certified for c in children)
 
         return False  # pragma: no cover — inalcanzable: solo llegan ops ∈ OPERATORS (validado en _evaluate_operator)
+
+    # --------------------------------------------------------
+    # Evaluación de nodos de computación (GAP-03 full fix)
+    # --------------------------------------------------------
+
+    def _evaluate_computation(
+        self,
+        node: Dict[str, Any],
+        ctx: Dict[str, Any],
+        enforce_limits: bool = True,
+        _depth: int = 0,
+        _limit_counter: Optional[_TreeLimitCounter] = None,
+        _visited: Optional[Set[int]] = None,
+    ) -> Evaluation:
+        """Evaluate a genome computation graph natively in the engine.
+
+        Computation node format:
+        {
+          "computation": {
+            "features": [
+              {"op": "add", "args": ["input_value", "threshold"], "output_name": "d0"},
+              {"op": "mul", "args": ["d0", "latency_ms"], "output_name": "d1"}
+            ],
+            "tree": {
+              "condition": "d1",
+              "threshold": 0.3,
+              "operator": "gt",
+              "left": true,
+              "right": false
+            }
+          }
+        }
+
+        The feature chain is evaluated first (each feature can reference
+        raw inputs AND previously computed derived features). Then the
+        decision tree is evaluated against the resolved feature values.
+        """
+        comp = node["computation"]
+        features = comp.get("features", [])
+        tree = comp.get("tree", {})
+
+        # Import OPERATIONS from rsi_genome_v3 (lazy import to avoid circular)
+        try:
+            from vsf_rsi.rsi_genome_v3 import OPERATIONS
+        except ImportError:
+            # Fallback: minimal operations if genome module unavailable
+            OPERATIONS = {
+                "add": lambda *a: sum(a),
+                "sub": lambda *a: a[0] - sum(a[1:]) if a else 0.0,
+                "mul": lambda *a: __import__("functools").reduce(lambda x, y: x * y, a, 1.0),
+                "max": lambda *a: max(a) if a else 0.0,
+                "min": lambda *a: min(a) if a else 0.0,
+                "mean": lambda *a: sum(a) / len(a) if a else 0.0,
+                "abs": lambda *a: abs(a[0]) if a else 0.0,
+                "square": lambda *a: a[0] ** 2 if a else 0.0,
+                "sqrt": lambda *a: __import__("math").sqrt(abs(a[0])) if a else 0.0,
+                "neg": lambda *a: -a[0] if a else 0.0,
+                "sign": lambda *a: (1.0 if a[0] > 0 else -1.0 if a[0] < 0 else 0.0) if a else 0.0,
+                "parity": lambda *a: float(sum(1 for x in a if x < 0) % 2),
+                "count_neg": lambda *a: float(sum(1 for x in a if x < 0)),
+                "xor2": lambda *a: float(sum(1 for x in a if x > 0) % 2) * 2 - 1 if a else 0.0,
+                "threshold": lambda *a: 1.0 if a and a[0] > 0.5 else 0.0,
+            }
+
+        # Step 1: Evaluate feature chain with chaining support
+        all_features = {}
+        # Seed with raw context values (float conversion)
+        for k, v in ctx.items():
+            if isinstance(v, (int, float)):
+                all_features[k] = float(v)
+            elif isinstance(v, dict):
+                for k2, v2 in v.items():
+                    if isinstance(v2, (int, float)):
+                        all_features[k2] = float(v2)
+
+        for feat in features:
+            op_name = feat.get("op", "")
+            args = feat.get("args", [])
+            output_name = feat.get("output_name", "")
+
+            # Resolve input values (can be raw OR derived)
+            input_vals = []
+            for a in args:
+                if a in all_features:
+                    input_vals.append(all_features[a])
+                else:
+                    try:
+                        input_vals.append(float(a))
+                    except (TypeError, ValueError):
+                        input_vals.append(0.0)
+
+            # Apply operation
+            if op_name in OPERATIONS:
+                try:
+                    output = OPERATIONS[op_name](*input_vals)
+                except Exception:
+                    output = 0.0
+            else:
+                output = 0.0
+
+            all_features[output_name] = output
+
+        # Step 2: Evaluate decision tree against resolved features
+        result = self._eval_genome_tree(tree, all_features)
+
+        return Evaluation(
+            truth=Truth.TRUE if result else Truth.FALSE,
+            certified=True,
+            evidence={
+                "features": {k: round(v, 4) for k, v in all_features.items()
+                             if k.startswith("d") or k in ("input_value", "threshold", "latency_ms")},
+                "tree_result": result,
+            },
+            source="computation",
+            context=ctx.copy(),
+        )
+
+    def _eval_genome_tree(self, node: Any, features: Dict[str, float]) -> bool:
+        """Evaluate a genome-style decision tree recursively."""
+        if not isinstance(node, dict):
+            return bool(node)
+
+        # Leaf node
+        if "result" in node:
+            return bool(node["result"])
+
+        # Internal node
+        condition = node.get("condition", "")
+        threshold = node.get("threshold", 0.0)
+        operator = node.get("operator", "gt")
+        value = features.get(condition, 0.0)
+
+        if operator == "gt":
+            test = value > threshold
+        elif operator == "lt":
+            test = value < threshold
+        elif operator == "eq":
+            test = abs(value - threshold) < 0.01
+        else:
+            test = value > threshold
+
+        if test:
+            left = node.get("left")
+            return self._eval_genome_tree(left, features) if left is not None else False
+        else:
+            right = node.get("right")
+            return self._eval_genome_tree(right, features) if right is not None else False
 
     # --------------------------------------------------------
     # Diagnóstico inverso (trace de fallos de certificación)
