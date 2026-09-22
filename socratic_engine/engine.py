@@ -551,6 +551,131 @@ class SocraticEngine:
                 source="ctx_not_has",
             )
 
+        # ── PREDICADOS NUMÉRICOS (v0.2.12): comparación de valores del contexto.
+        # Usados por el GA del RSI pipeline para evaluar estrategias.
+        # API: gt(field_or_value, threshold) o gt($ctx, field, threshold).
+
+        def _resolve_numeric(args, kw):
+            """Resolve numeric value from args. Handles:
+            - gt(0.7, 0.5) → (0.7, 0.5)
+            - gt("input_value", 0.5, _context={...}) → (ctx["input_value"], 0.5)
+            - gt($ctx, "input_value", 0.5) → (ctx["input_value"], 0.5)
+            Returns (value, threshold, ctx) or raises ValueError."""
+            ctx = kw.get("_context", {})
+            if len(args) == 2:
+                field_or_value, threshold = args[0], args[1]
+            elif len(args) == 3:
+                maybe_ctx, field_or_value, threshold = args[0], args[1], args[2]
+                if isinstance(maybe_ctx, dict):
+                    ctx = maybe_ctx
+            else:
+                raise ValueError("numeric predicate requires 2 or 3 positional args")
+            # Resolve field name to numeric value from context
+            if isinstance(field_or_value, str) and isinstance(ctx, dict):
+                if field_or_value in ctx:
+                    try:
+                        value = float(ctx[field_or_value])
+                    except (TypeError, ValueError):
+                        raise ValueError(f"non_numeric value for field '{field_or_value}'")
+                else:
+                    raise ValueError(f"field '{field_or_value}' not in context")
+            else:
+                try:
+                    value = float(field_or_value)
+                except (TypeError, ValueError):
+                    raise ValueError(f"non_numeric value: {field_or_value}")
+            try:
+                threshold = float(threshold)
+            except (TypeError, ValueError):
+                raise ValueError(f"non_numeric threshold: {threshold}")
+            return value, threshold, ctx
+
+        @self.register("gt")
+        def gt(*args, **kw) -> PredicateResult:
+            """¿El valor es mayor que el umbral? — comparador numérico base.
+            API: gt(field, threshold) o gt("field_name", 0.5, _context={...})."""
+            try:
+                value, threshold, ctx = _resolve_numeric(args, kw)
+            except ValueError as e:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": str(e)}, source="gt",
+                )
+            return PredicateResult(
+                truth=Truth.TRUE if value > threshold else Truth.FALSE,
+                certified=True,
+                evidence={"value": value, "threshold": threshold, "op": "gt"},
+                source="gt",
+            )
+
+        @self.register("lt")
+        def lt(*args, **kw) -> PredicateResult:
+            """¿El valor es menor que el umbral?"""
+            try:
+                value, threshold, ctx = _resolve_numeric(args, kw)
+            except ValueError as e:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": str(e)}, source="lt",
+                )
+            return PredicateResult(
+                truth=Truth.TRUE if value < threshold else Truth.FALSE,
+                certified=True,
+                evidence={"value": value, "threshold": threshold, "op": "lt"},
+                source="lt",
+            )
+
+        @self.register("gte")
+        def gte(*args, **kw) -> PredicateResult:
+            """¿El valor es mayor o igual que el umbral?"""
+            try:
+                value, threshold, ctx = _resolve_numeric(args, kw)
+            except ValueError as e:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": str(e)}, source="gte",
+                )
+            return PredicateResult(
+                truth=Truth.TRUE if value >= threshold else Truth.FALSE,
+                certified=True,
+                evidence={"value": value, "threshold": threshold, "op": "gte"},
+                source="gte",
+            )
+
+        @self.register("lte")
+        def lte(*args, **kw) -> PredicateResult:
+            """¿El valor es menor o igual que el umbral?"""
+            try:
+                value, threshold, ctx = _resolve_numeric(args, kw)
+            except ValueError as e:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": str(e)}, source="lte",
+                )
+            return PredicateResult(
+                truth=Truth.TRUE if value <= threshold else Truth.FALSE,
+                certified=True,
+                evidence={"value": value, "threshold": threshold, "op": "lte"},
+                source="lte",
+            )
+
+        @self.register("eq")
+        def eq(*args, **kw) -> PredicateResult:
+            """¿El valor es igual al esperado? (comparación numérica)"""
+            try:
+                value, threshold, ctx = _resolve_numeric(args, kw)
+            except ValueError as e:
+                return PredicateResult(
+                    truth=Truth.UNKNOWN, certified=False,
+                    evidence={"error": str(e)}, source="eq",
+                )
+            return PredicateResult(
+                truth=Truth.TRUE if value == threshold else Truth.FALSE,
+                certified=True,
+                evidence={"value": value, "threshold": threshold, "op": "eq"},
+                source="eq",
+            )
+
         # ── PREDICADOS PRAGMÁTICOS (v0.2.0): preguntas sobre comportamiento
         # temporal y estructural, NO sobre el contenido estático del doc.
         # Siguen la misma disciplina R10: sin serie/topología no hay juicio
