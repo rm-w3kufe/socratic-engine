@@ -68,26 +68,35 @@ class ProviderEntry:
         self._last_check: Optional[float] = None  # monotonic timestamp
         self._consecutive_failures = 0
 
-    def query(self, domain: str, filter_dict: dict) -> list[dict]:
+    def query(self, domain: str, filter_dict: dict,
+              track: bool = True) -> list[dict]:
         try:
             result = self.provider.query(domain, filter_dict)
-            self._record_success()
+            if track:
+                self._record_success()
             return result
         except Exception as e:
-            self._record_failure(str(e))
+            if track:
+                self._record_failure(str(e))
             logger.warning(
                 f"Provider '{self.name}' query failed for domain "
                 f"'{domain}': {e}"
             )
             raise
 
-    def list_domains(self) -> list[str]:
+    def list_domains(self, track: bool = True) -> list[str]:
+        """List domains. track=False for introspection paths (canon_domains,
+        canon_providers): observing health must not HEAL the patient —
+        a successful list_domains must not clear consecutive query
+        failures (H4 observer-effect finding)."""
         try:
             domains = self.provider.list_domains()
-            self._record_success()
+            if track:
+                self._record_success()
             return domains
         except Exception as e:
-            self._record_failure(str(e))
+            if track:
+                self._record_failure(str(e))
             logger.warning(
                 f"Provider '{self.name}' list_domains failed: {e}"
             )
@@ -438,7 +447,7 @@ class MultiBridge:
         counts: dict[str, int] = {}
         for name, entry in self._providers.items():
             try:
-                domains = entry.list_domains()
+                domains = entry.list_domains(track=False)
                 all_domains.extend(domains)
                 for d in domains:
                     counts[d] = counts.get(d, 0) + 1
@@ -463,7 +472,7 @@ class MultiBridge:
         providers = []
         for name, entry in self._providers.items():
             try:
-                domains = entry.list_domains()
+                domains = entry.list_domains(track=False)
                 status = "active"
             except Exception:
                 domains = entry.domains  # fallback to declared

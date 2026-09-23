@@ -517,3 +517,65 @@ class TestCrossDomain:
         eng = self._svc_bridge()
         with pytest.raises(ValueError):
             eng.evaluate({"op": "NOT", "children": []})
+
+
+class TestHealthObserverEffect:
+    """H4 finding: introspection must not HEAL the patient — a successful
+    list_domains during canon_providers/canon_domains must not clear
+    consecutive query failures."""
+
+    def _killer(self):
+        bridge = MultiBridge()
+        bridge.add_provider("killer", FakeProvider({}), ["svc"])
+        # Fail 3 queries through the tracking wrapper
+        entry = bridge._providers["killer"]
+        for _ in range(3):
+            try:
+                entry.query("svc", {})
+            except Exception:
+                pass
+        # FakeProvider returns [] (no raise!) — force failures instead
+        return bridge, entry
+
+    def test_providers_introspection_preserves_unhealthy(self):
+        bridge = MultiBridge()
+
+        class Killer(FakeProvider):
+            def query(self, domain, filt=None):
+                raise ConnectionError("dead")
+
+        bridge.add_provider("killer", Killer(), ["svc"])
+        entry = bridge._providers["killer"]
+        for _ in range(3):
+            try:
+                entry.query("svc", {})
+            except ConnectionError:
+                pass
+        assert entry.health["healthy"] is False
+
+        eng = SocraticEngine()
+        bridge.register(eng)
+        result = eng.predicates["canon_providers"]()
+        assert result.truth == Truth.UNKNOWN
+        # Introspection did not heal: still unhealthy afterwards
+        assert entry.health["healthy"] is False
+        assert entry.health["consecutive_failures"] == 3
+
+    def test_domains_introspection_preserves_health(self):
+        bridge = MultiBridge()
+
+        class Killer(FakeProvider):
+            def query(self, domain, filt=None):
+                raise ConnectionError("dead")
+
+        bridge.add_provider("killer", Killer(), ["svc"])
+        entry = bridge._providers["killer"]
+        for _ in range(2):
+            try:
+                entry.query("svc", {})
+            except ConnectionError:
+                pass
+        eng = SocraticEngine()
+        bridge.register(eng)
+        eng.predicates["canon_domains"]()
+        assert entry.health["consecutive_failures"] == 2
