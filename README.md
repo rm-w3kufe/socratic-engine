@@ -12,7 +12,7 @@
 
 The engine is deliberately small. It does not try to make an LLM "smarter". It gives the model a formal structure in which complex questioning can be proposed, executed recursively, inspected, and diagnosed **outside the model's token-generation loop**.
 
-**Status:** v0.2.11 published on PyPI — core engine, VSL tree parser, CLI, MCP bridge, multi-bridge (route canon_* to multiple providers by domain with health tracking + routing observability), VsmDocProvider, dialectical operator, pragmatic predicates, **context predicates** (ctx_has, ctx_equals, ctx_contains, ctx_not_has), **`decide` CLI command** (evaluate decisions before execution), semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K via `_TreeLimitCounter`), **cycle detection**, caching, rate limiting, engine contract protocols (`SocraticEngineProtocol`, `EvaluationProtocol`), **security hardening** (enforce_limits=True by default, predicate error wrapping, arity validation), CI (pytest 3.10–3.12 + coverage gate at 90%), 519-test suite + 46 adversarial tests (6 categories), benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
+**Status:** v0.2.12 — core engine, VSL tree parser (block + inline notation), CLI (`eval-tree`, `decide`, `match-procedure`), MCP bridge, multi-bridge (health tracking + routing observability + duplicate-domain priority), VsmDocProvider, dialectical and **jury** operators, **certified-UNKNOWN doctrine** (indeterminacy vocabulary + gate), **computation nodes** (genome feature-chain evaluation), pragmatic predicates, **context predicates** (ctx_has, ctx_equals, ctx_contains, ctx_not_has), semantic simplification (NOT flattening, contradiction/tautology, dedup, absorption), short-circuit evaluation, tree DoS prevention (depth≤100, nodes≤10K via `_TreeLimitCounter`), **cycle detection**, caching, rate limiting, engine contract protocols (`SocraticEngineProtocol`, `EvaluationProtocol`), **security hardening** (enforce_limits=True by default, predicate error wrapping, arity validation), CI (pytest + coverage gate at 90%), 546-test suite, benchmarks, and the official state-canon bridge ([`bridge_statecanon.py`](./socratic_engine/bridge_statecanon.py)) with end-to-end examples are working. The broader claim — that externalizing recursive structure improves reliability on tasks that exceed a model's implicit recursive reasoning capacity — is an experimental hypothesis, not a proclamation.
 
 ---
 
@@ -205,6 +205,28 @@ PredicateResult(
 
 The distinction is intentional.
 
+### Certified UNKNOWN
+
+Certification admits `UNKNOWN` — but only with proof of indeterminacy,
+never as a bare claim. A predicate returning `UNKNOWN` + `certified=True`
+without an `indeterminacy` evidence block (`{kind, ...proof}`) is degraded
+to uncertified with a warning. Valid kinds: `undecidable-reduction`,
+`quantum-superposition`, `jury-hung`, `exhaustive-empty`,
+`vague-boundary`, `symmetric-tie`.
+
+```python
+PredicateResult(
+    truth=Truth.UNKNOWN,
+    certified=True,  # kept: proof attached
+    evidence={"indeterminacy": {"kind": "exhaustive-empty",
+                                "scanned": 4200}},
+)
+```
+
+"Verified absence" (exhaustive search, empty result) is expressed as
+`TRUE`-with-evidence, not as `UNKNOWN`. Precedent: `DIALECTICAL_AND`
+already certifies `UNKNOWN` for proven contradiction.
+
 ---
 
 ## Recursive questioning
@@ -271,6 +293,31 @@ print(result.explain())
 ```
 
 The engine can evaluate arbitrary nesting because the same contract is applied at every level.
+
+---
+
+## Computation nodes
+
+A `computation` node evaluates a feature chain natively before deciding —
+each feature can reference raw inputs *and* previously computed derived
+features (`d0 → d1 → d2`), then a genome-style decision tree branches on
+the resolved values. Zero information loss versus flattening to
+predicates; the resolved features travel in evidence.
+
+```python
+tree = {"computation": {
+    "features": [
+        {"op": "add", "args": ["x", "y"], "output_name": "d0"},
+        {"op": "mul", "args": ["d0", "x"], "output_name": "d1"},
+    ],
+    "tree": {"condition": "d1", "threshold": 0.3, "operator": "gt",
+             "left": True, "right": False},
+}}
+result = engine.evaluate(tree, {"x": 0.8, "y": 0.5})
+```
+
+Produced by RSI genome evolution (`genome_to_computation_node`) and
+evaluated without translation loss.
 
 ---
 
@@ -401,6 +448,7 @@ The engine implements:
 | `XOR` | exactly one true branch | children must be certified |
 | `IMPLIES` | antecedent → consequent | antecedent and consequent must be certified when relevant |
 | `DIALECTICAL_AND` | contradiction is not rejection — a certified TRUE/FALSE conflict yields `UNKNOWN` (certified), with thesis/antithesis in metadata | in conflict: all children certified (the contradiction itself is a fact); without conflict: all children certified |
+| `JURY` | verdict by supermajority (default ⅔, configurable `supermajority` in (0.5, 1.0], `quorum` default = all children) — supermajority wins, else hung | all votes certified (the verdict, including a hung one, certifies the *procedure*); no quorum → uncertified |
 
 The distinction matters for diagnosis.
 
@@ -730,6 +778,11 @@ provider crash is indetermination, not falsity.
 info in its evidence: provider name, domain, latency_ms, record_count.
 This makes provider selection inspectable in the evaluation tree.
 
+**Duplicate-domain priority**: `add_provider(..., priority=N)` and the
+`priority` field in bridge config (default 0, higher wins; tie keeps the
+first registered). Introspection (`canon_providers`, `canon_domains`)
+never mutates health — observing a provider must not heal it.
+
 See [`socratic_engine/multi_bridge.py`](./socratic_engine/multi_bridge.py) for
 the full API and config format.
 
@@ -744,6 +797,26 @@ socratic-engine eval-tree tree.json --doc-type THEORY-VC-01
 ```
 
 A successful response contains the structured decision together with its explanation and diagnostic information.
+
+### Match a procedure
+
+```bash
+socratic-engine match-procedure --input '{"instrument":"x","hook":"session.idle","context":{},"repoRoot":"."}'
+```
+
+Matches current context against past procedures in
+`learning_records/procedures/` (instrument/hook/success/recency scoring).
+Returns `reuse` / `adapt` / `skip` with confidence. Thin-dispatcher
+counterpart to the opencode scenario-memory plugin.
+
+### Inline VSL notation
+
+Trees can also be written inline: `socratic(predicate, arg, ...)` is
+shorthand for `{"predicate": ..., "args": [...]}`.
+
+```bash
+socratic-engine eval-tree <(echo 'socratic(type_prefix, "$type", "VSL-")') --doc-type VSL-X
+```
 
 ### Decide: evaluate decisions before execution
 

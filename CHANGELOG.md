@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-09-22
+
+### Added
+- **Certified-UNKNOWN doctrine (R10-corolario, S5)**: `certified=True` admits `truth=UNKNOWN` only with an `indeterminacy` evidence block. New `INDETERMINACY_KINDS` vocabulary (`undecidable-reduction`, `quantum-superposition`, `jury-hung`, `exhaustive-empty`, `vague-boundary`, `symmetric-tie`) + validator. A gate in `_evaluate_predicate` degrades bare UNKNOWN+certified to uncertified with a warning (truth preserved, caller object unmutated). Precedent: `DIALECTICAL_AND` already certified UNKNOWN on proven contradiction.
+- **`JURY` operator**: verdict by supermajority (default ⅔, configurable `supermajority` in (0.5, 1.0], `quorum` default = all children). Supermajority wins; hung + quorum → `UNKNOWN` certified with `indeterminacy: jury-hung` in metadata (tally travels in `metadata["jury"]`); no quorum → `UNKNOWN` uncertified. `UNKNOWN` votes are abstentions. Certification = all votes certified (the verdict certifies the *procedure*).
+- **Computation nodes**: `{"computation": {features, tree}}` evaluated natively — chained derived features (`d0 → d1 → d2` over 15 ops) then genome-style decision tree. Zero-loss target for RSI genome evaluation.
+- **`match-procedure` CLI command**: match context against `learning_records/procedures/` (instrument/hook/success/recency scoring) → `reuse`/`adapt`/`skip` with confidence.
+- **Duplicate-domain priority (GAP-9)**: `add_provider(..., priority=N)` + `priority` config field (higher wins, tie keeps first registered); exposed in `canon_providers` evidence.
+- **Inline VSL notation (GAP-8)**: `parse_socratic_block` accepts `socratic(predicate, arg, ...)` shorthand → `{predicate, args}` (quote-aware paren matching, reuses `_parse_vsl_value`).
+
+### Fixed
+- **Observer-effect heal (H4)**: `canon_providers`/`canon_domains` introspection called the health-tracking `list_domains()` wrapper, clearing consecutive query failures — observing health healed the patient. `query`/`list_domains` accept `track=False`, used by introspection paths.
+- **`from_config` robustness**: falls back to `sys.modules` (full path, then final component) when importlib can't resolve — fixes `test_loads_config` under pytest rootdir import mode.
+
+### Tests
+- **546 passed** (was 519): 14 jury/gate tests, 10 composite multi-bridge tests (OR/NOT/nested/empty-children), inline-parser tests, observer-effect regressions. 2 tests updated to new contracts (inline fallback, falsification UNKNOWN).
+
 ## [0.2.11] - 2026-09-07
 
 ### Added
