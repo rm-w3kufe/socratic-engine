@@ -46,6 +46,27 @@ def _normalize_filter(filter_arg: Any) -> Optional[dict]:
     return None
 
 
+def _exhaustive_empty_evidence(
+    domain: str, reason: str, routing: Optional[dict] = None
+) -> dict:
+    """TASK-5/C (S5 2026-10-01): vacío certificable (R10-corolario 2026-09-22).
+
+    La query COMPLETÓ contra el provider correcto (routing sin error,
+    record_count=0) y no hubo hallazgo -> kind `exhaustive-empty` con esa
+    misma prueba. `unknown_domain`/`query_failed` NO pasan por aquí
+    (siguen certified=False): no hay búsqueda completada que mostrar.
+    El gate engine.py::_valid_indeterminacy degrada este resultado si
+    alguien quita el bloque (sin prueba no hay certificación)."""
+    evidence: dict = {"domain": domain, "reason": reason}
+    if routing:
+        evidence["routing"] = routing
+    evidence["indeterminacy"] = {
+        "kind": "exhaustive-empty",
+        "proof": {"query_completed": True, "routing": routing},
+    }
+    return evidence
+
+
 class ProviderEntry:
     """Wrapper for a registered provider with metadata and health tracking."""
 
@@ -289,16 +310,12 @@ class MultiBridge:
                 source="canon_query",
             )
         if not records:
-            evidence = {
-                "domain": domain,
-                "filter": filter_arg,
-                "reason": "no_records",
-            }
-            if routing:
-                evidence["routing"] = routing
+            # TASK-5/C: query completada + 0 filas = exhaustive-empty.
+            evidence = _exhaustive_empty_evidence(domain, "no_records", routing)
+            evidence["filter"] = filter_arg
             return PredicateResult(
                 truth=Truth.UNKNOWN,
-                certified=False,
+                certified=True,
                 evidence=evidence,
                 source="canon_query",
             )
@@ -320,7 +337,7 @@ class MultiBridge:
         **kw,
     ) -> PredicateResult:
         records, routing = self._records(domain, filter_arg)
-        if records is None or not records:
+        if records is None:
             evidence = {"domain": domain, "reason": "no_evidence"}
             if routing:
                 evidence["routing"] = routing
@@ -328,6 +345,14 @@ class MultiBridge:
                 truth=Truth.UNKNOWN,
                 certified=False,
                 evidence=evidence,
+                source="canon_matches",
+            )
+        if not records:
+            # TASK-5/C: vacío certificable, distinto de query fallida.
+            return PredicateResult(
+                truth=Truth.UNKNOWN,
+                certified=True,
+                evidence=_exhaustive_empty_evidence(domain, "no_evidence", routing),
                 source="canon_matches",
             )
         expected = _normalize_filter(expected_arg)
@@ -365,7 +390,7 @@ class MultiBridge:
         **kw,
     ) -> PredicateResult:
         records, routing = self._records(domain, filter_arg)
-        if records is None or not records:
+        if records is None:
             evidence = {"domain": domain, "reason": "no_evidence"}
             if routing:
                 evidence["routing"] = routing
@@ -373,6 +398,14 @@ class MultiBridge:
                 truth=Truth.UNKNOWN,
                 certified=False,
                 evidence=evidence,
+                source="canon_field_equals",
+            )
+        if not records:
+            # TASK-5/C: vacío certificable, distinto de query fallida.
+            return PredicateResult(
+                truth=Truth.UNKNOWN,
+                certified=True,
+                evidence=_exhaustive_empty_evidence(domain, "no_evidence", routing),
                 source="canon_field_equals",
             )
         if field not in records[0]:
@@ -408,7 +441,7 @@ class MultiBridge:
         **kw,
     ) -> PredicateResult:
         records, routing = self._records(domain, filter_arg)
-        if records is None or not records:
+        if records is None:
             evidence = {"domain": domain, "reason": "no_evidence"}
             if routing:
                 evidence["routing"] = routing
@@ -416,6 +449,14 @@ class MultiBridge:
                 truth=Truth.UNKNOWN,
                 certified=False,
                 evidence=evidence,
+                source="canon_drift",
+            )
+        if not records:
+            # TASK-5/C: vacío certificable, distinto de query fallida.
+            return PredicateResult(
+                truth=Truth.UNKNOWN,
+                certified=True,
+                evidence=_exhaustive_empty_evidence(domain, "no_evidence", routing),
                 source="canon_drift",
             )
         drift = [

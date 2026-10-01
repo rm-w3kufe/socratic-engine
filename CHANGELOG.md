@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **TASK-5/C — certified-UNKNOWN for completed-empty canon queries (GAP-10, decision S5 2026-10-01)**: a `canon_*` query that *completes* against the right provider and returns 0 records now returns `UNKNOWN, certified=True` carrying `evidence.indeterminacy = {kind: exhaustive-empty, proof: {query_completed: true, routing}}`. Previously merged failure/empty branches are now split: `unknown_domain` and `query_failed` keep `UNKNOWN, certified=False` (no completed search to show), and the R10-corolario gate (`_valid_indeterminacy`) still degrades any certified-UNKNOWN without a valid proof block. Applies to `canon_query` (`no_records`) and to `canon_matches`/`canon_field_equals`/`canon_drift` (previously fused `records is None or not records` under `no_evidence` — now split into uncertified failure vs certified empty).
+
+### Tests
+- **591 passed** (was 582): 9 new `TestTask5ExhaustiveEmpty` tests (certified empty with proof per predicate, failed/unknown-domain stay uncertified, engine gate preserves proven-UNKNOWN and degrades bare UNKNOWN+certified).
+
 ## [0.2.12] - 2026-09-22
 
 ### Added

@@ -171,6 +171,9 @@ class TestCanonQuery:
         result = eng.predicates["canon_query"]("svc")
         assert result.truth == Truth.UNKNOWN
         assert result.evidence["reason"] == "no_records"
+        # TASK-5/C: vacío con búsqueda completada certifica con proof.
+        assert result.certified is True
+        assert result.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
 
     def test_unknown_domain(self):
         bridge = MultiBridge()
@@ -181,6 +184,9 @@ class TestCanonQuery:
         result = eng.predicates["canon_query"]("nonexistent")
         assert result.truth == Truth.UNKNOWN
         assert result.evidence["reason"] == "unknown_domain"
+        # TASK-5/C: dominio desconocido NO es vacío certificable.
+        assert result.certified is False
+        assert "indeterminacy" not in result.evidence
 
     def test_with_filter(self):
         bridge = MultiBridge()
@@ -232,6 +238,9 @@ class TestCanonMatches:
 
         result = eng.predicates["canon_matches"]("svc", "{}", '{"x": 1}')
         assert result.truth == Truth.UNKNOWN
+        # TASK-5/C: vacío certificable con exhaustive-empty.
+        assert result.certified is True
+        assert result.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
 
 
 # ── canon_field_equals ───────────────────────────────────────────────────
@@ -579,3 +588,114 @@ class TestHealthObserverEffect:
         bridge.register(eng)
         eng.predicates["canon_domains"]()
         assert entry.health["consecutive_failures"] == 2
+
+
+# ── TASK-5/C: UNKNOWN certificado con exhaustive-empty ─────────────────────
+# (GAP-10, decision S5 2026-10-01 — corolario R10 2026-09-22)
+
+
+class TestTask5ExhaustiveEmpty:
+    def _bridge(self, provider, domains=("svc",)):
+        bridge = MultiBridge()
+        bridge.add_provider("p1", provider, list(domains))
+        eng = SocraticEngine()
+        bridge.register(eng)
+        return bridge, eng
+
+    def test_query_no_records_certified_with_proof(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_query"]("svc")
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is True
+        ind = result.evidence["indeterminacy"]
+        assert ind["kind"] == "exhaustive-empty"
+        assert ind["proof"]["query_completed"] is True
+        assert result.evidence["routing"]["record_count"] == 0
+
+    def test_query_failed_stays_uncertified(self):
+        class Killer(FakeProvider):
+            def query(self, domain, filter_dict=None):
+                raise ConnectionError("dead")
+
+        _, eng = self._bridge(Killer({"svc": []}))
+        result = eng.predicates["canon_query"]("svc")
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is False
+        assert result.evidence["reason"] == "query_failed"
+        assert "indeterminacy" not in result.evidence
+
+    def test_unknown_domain_stays_uncertified(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_query"]("nonexistent")
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is False
+        assert result.evidence["reason"] == "unknown_domain"
+        assert "indeterminacy" not in result.evidence
+
+    def test_matches_no_records_certified(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_matches"]("svc", "{}", '{"x": 1}')
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is True
+        assert result.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
+
+    def test_matches_unknown_domain_stays_uncertified(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_matches"]("nonexistent", "{}", '{"x": 1}')
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is False
+        assert result.evidence["reason"] == "no_evidence"
+        assert "indeterminacy" not in result.evidence
+
+    def test_field_equals_no_records_certified(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_field_equals"](
+            "svc", "{}", "version", "2.0"
+        )
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is True
+        assert result.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
+
+    def test_drift_no_records_certified(self):
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        result = eng.predicates["canon_drift"]("svc", "{}", "declared", "observed")
+        assert result.truth == Truth.UNKNOWN
+        assert result.certified is True
+        assert result.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
+
+    def test_engine_gate_preserves_certified_unknown(self):
+        # El gate R10-corolario conserva la certificación cuando la
+        # prueba de indeterminación es válida (ningún warning emitido).
+        import warnings
+
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+        tree = {"predicate": "canon_query", "args": ["svc"]}
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ev = eng.evaluate(tree, {})
+        assert ev.truth == Truth.UNKNOWN
+        assert ev.certified is True
+        assert ev.evidence["indeterminacy"]["kind"] == "exhaustive-empty"
+
+    def test_engine_gate_degrades_without_proof(self):
+        # Sin bloque indeterminacy, el gate degrada a uncertified + warning.
+        import warnings
+
+        from socratic_engine.engine import PredicateResult
+
+        _, eng = self._bridge(FakeProvider({"svc": []}))
+
+        def naked_unknown(**kw):
+            return PredicateResult(
+                truth=Truth.UNKNOWN,
+                certified=True,
+                evidence={"domain": "svc"},
+                source="naked_unknown",
+            )
+
+        eng.register_predicates_dict({"naked_unknown": naked_unknown})
+        tree = {"predicate": "naked_unknown", "args": []}
+        with pytest.warns(UserWarning, match="indeterminación"):
+            ev = eng.evaluate(tree, {})
+        assert ev.truth == Truth.UNKNOWN
+        assert ev.certified is False

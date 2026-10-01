@@ -241,6 +241,15 @@ Each `ProviderEntry` tracks:
 unhealthy. Failed queries return `UNKNOWN` (not FALSE) — a provider
 crash is indetermination, not falsity.
 
+**Empty vs failed (TASK-5/C, S5 2026-10-01)**: a *completed* query
+that returns 0 records is `UNKNOWN, certified=TRUE` with an
+`indeterminacy: {kind: exhaustive-empty, proof: {query_completed,
+routing}}` block — the routing (provider, latency, `record_count=0`)
+is the proof the search ran to completion. `unknown_domain` and
+`query_failed` stay `UNKNOWN, certified=FALSE`: there is no completed
+search to show. The R10-corolario gate degrades any certified-UNKNOWN
+without a valid indeterminacy block, so the proof cannot be skipped.
+
 ### Routing observability
 
 `_records()` returns `(records, routing_info)` where routing contains:
