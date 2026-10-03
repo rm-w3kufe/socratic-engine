@@ -102,11 +102,32 @@ class SocraticTreeBuilder:
 
 
 # ── interfaz con classification.local.vsm (árbol declarado en VSL) ──────────
+def _skip_ws_comment(s: str, i: int) -> int:
+    """Salta whitespace, comas y comentarios `// ... \\n` (VSL).
+
+    Sin esto, un comentario dentro de `children: [ ... ]` se parsea como
+    nodos string sueltos ("//" + fragmentos) y engine.evaluate lanza
+    `ValueError: Nodo inválido ... Recibido: //` cuando una rama sin
+    short-circuit los alcanza (bug observado con classify.tree.vsm de
+    vOSlab, 2026-10-03). Soporta comments consecutivos. Seguro: esta
+    funcion solo se alcanza FUERA de strings (la rama '"' del parser
+    maneja el interior con escapes)."""
+    n = len(s)
+    while i < n:
+        if s[i] in " \t\n\r,":
+            i += 1
+        elif s.startswith("//", i):
+            nl = s.find("\n", i)
+            i = n if nl < 0 else nl
+        else:
+            break
+    return i
+
+
 def _parse_vsl_value(s: str, i: int) -> tuple[Any, int]:
     """Mini-parser VSL de valores: { } [ ] "string" word — recursivo.
     Retorna (valor, índice_tras_el_valor). Soporta árboles anidados."""
-    while i < len(s) and s[i] in " \t\n\r,":
-        i += 1
+    i = _skip_ws_comment(s, i)
     if i >= len(s):
         return None, i
     c = s[i]
@@ -115,8 +136,7 @@ def _parse_vsl_value(s: str, i: int) -> tuple[Any, int]:
         obj: dict = {}
         key: str | None = None
         while i < len(s):
-            while i < len(s) and s[i] in " \t\n\r,":
-                i += 1
+            i = _skip_ws_comment(s, i)
             if i >= len(s):
                 break
             if s[i] == "}":
@@ -136,8 +156,7 @@ def _parse_vsl_value(s: str, i: int) -> tuple[Any, int]:
                     j += 1
                 key = s[i:j]
                 i = j
-            while i < len(s) and s[i] in " \t\n\r":
-                i += 1
+            i = _skip_ws_comment(s, i)
             if i < len(s) and s[i] == ":":
                 i += 1
             val, i = _parse_vsl_value(s, i)
@@ -148,8 +167,7 @@ def _parse_vsl_value(s: str, i: int) -> tuple[Any, int]:
         i += 1
         arr: list = []
         while i < len(s):
-            while i < len(s) and s[i] in " \t\n\r,":
-                i += 1
+            i = _skip_ws_comment(s, i)
             if i >= len(s):
                 break
             if s[i] == "]":
